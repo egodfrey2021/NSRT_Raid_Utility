@@ -1,0 +1,6 @@
+package-as: NSRT_Extras
+
+ignore:
+  - README.md
+  - CLAUDE.md
+  - media
