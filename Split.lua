@@ -692,12 +692,26 @@ end
 --   lustRez, buffs: then fix shortfalls with same-bucket swaps (FixShortfalls; players carry lust, rez, buff).
 --   debuffMax: then place a lone Demon Hunter/Monk for most damage (MaximizeDebuffs; players carry debuffDps,
 --     physical).
--- Players with pin = 1 or 2 go to that side first. Returns sides and the shortfalls that couldn't be fixed.
+-- Players with pin = 1 or 2 go to that side first. Returns sides and the shortfalls that couldn't be fixed,
+-- or nil and an error when more than 20 players are pinned to one side.
 function RaidUtility.BalanceSides(players, opts)
     opts = opts or {}
     local byPosition = opts.byPosition
     local sides = { { players = {}, count = 0 }, { players = {}, count = 0 } }
     local cap = { math.ceil(#players / 2), math.floor(#players / 2) }
+    local pinned = { 0, 0 }
+    for _, p in ipairs(players) do
+        if p.pin then pinned[p.pin] = pinned[p.pin] + 1 end
+    end
+    for s = 1, 2 do
+        if pinned[s] > 20 then
+            return nil,
+                L["More than 20 players are pinned to side %s. Unpin some and try again."]:format(s == 1 and "A" or "B")
+        end
+        if pinned[s] > cap[s] then
+            cap[s], cap[3 - s] = pinned[s], #players - pinned[s]
+        end
+    end
     local buckets, byKey = {}, {}
     for _, role in ipairs({ "TANK", "HEALER", "DAMAGER" }) do
         for _, position in ipairs((byPosition and role ~= "TANK") and { "MELEE", "RANGED" } or { "ANY" }) do

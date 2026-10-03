@@ -190,6 +190,44 @@ test("with the toggle off, Generate split replaces the open roster at once, and 
     utility:LoadDraft()
 end)
 
+test("too many pins on one side stop the split without replacing the draft", function()
+    SplitRaid()
+    local raid = {}
+    for i = 1, 40 do
+        raid[i] = Member(("P%02d"):format(i), "Home")
+        raid[i].subgroup = math.ceil(i / 5)
+    end
+    H.SetRaid(raid)
+    DamageMeter({})
+    utility.db.splitGroups14, utility.db.splitToNewRoster = false, false
+    utility.draft[1][1] = "Keep"
+    utility:MarkDirty()
+    for i = 1, 21 do
+        utility.draftPins[("p%02d-home"):format(i)] = 1
+    end
+    H.popup = nil
+    utility:GenerateSplit()
+    assert(utility.draft[1][1] == "Keep" and not H.popup, "over-capacity pins replaced the draft")
+    assert(H.LastMessage():find("More than 20 players are pinned to side A", 1, true), H.LastMessage())
+    utility.db.splitGroups14, utility.db.splitToNewRoster = nil, true
+    utility:LoadDraft()
+end)
+
+test("pins can exceed half of an odd raid without exceeding the 20-slot side limit", function()
+    local players = {}
+    for i = 1, 39 do
+        players[i] = { name = ("P%02d"):format(i), role = "DAMAGER", value = 0, pin = i <= 20 and 2 or nil }
+    end
+    local sides = utility.BalanceSides(players)
+    assert(#sides[1].players == 19 and #sides[2].players == 20, "valid pins were moved or rejected")
+    for _, p in ipairs(sides[2].players) do
+        assert(p.pin == 2, "pinned player was displaced")
+    end
+    players[21].pin = 2
+    local rejected, err = utility.BalanceSides(players)
+    assert(not rejected and err:find("side B", 1, true), "21 pins on side B were accepted")
+end)
+
 test("the split setup panel opens from Split raid and its As new roster checkbox saves its setting", function()
     SplitRaid()
     local ui = utility.ui
@@ -909,6 +947,50 @@ test("a Mythic split leaves offline and benched players out but keeps them in gr
     assert(utility.ui.summary.text:find("groups 1-4", 1, true), utility.ui.summary.text)
     utility.db.splitToNewRoster, H.instanceType, H.difficulty = true, nil, nil
     utility:LoadDraft()
+end)
+
+test("a split with 39 online players keeps the offline player in an available used group", function()
+    SplitRaid()
+    local raid = {}
+    for i = 1, 40 do
+        raid[i] = Member(("P%02d"):format(i), "Home")
+        raid[i].subgroup = math.ceil(i / 5)
+    end
+    raid[40].offline = true
+    H.SetRaid(raid)
+    DamageMeter({})
+    utility.db.splitGroups14, utility.db.splitToNewRoster = false, false
+    utility:GenerateSplit()
+    local names = {}
+    utility.ForEachEntry(utility.draft, function(_, _, entry) names[entry] = true end)
+    assert(names.P40 and names.P01 and names.P39, "offline player was dropped although a slot was available")
+    local count = 0
+    for _ in pairs(names) do
+        count = count + 1
+    end
+    assert(count == 40, "split lost a player")
+    utility.db.splitGroups14, utility.db.splitToNewRoster = nil, true
+    utility:LoadDraft()
+end)
+
+test("left-out players stay in inactive groups or report when those groups are full", function()
+    H.SetRaid({ Member("Bench", "Home") })
+    utility.db.splitGroups14 = true
+    local roster, notes = utility.NewRoster(), {}
+    roster[5][1] = "Occupied"
+    utility:KeepLeftOut(roster, { { entry = "Bench", subgroup = 5, online = true } }, notes)
+    assert(roster[5][2] == "Bench", "benched player lost a free slot in their own group")
+    utility:KeepLeftOut(roster, { { entry = "Offline", subgroup = 1, online = false } }, notes)
+    assert(roster[8][1] == "Offline" and roster[1][1] == "", "offline player went into a playing group")
+    for g = 5, 8 do
+        for s = 1, 5 do
+            roster[g][s] = "Occupied"
+        end
+    end
+    notes = {}
+    utility:KeepLeftOut(roster, { { entry = "Missing", subgroup = 1, online = false } }, notes)
+    assert(roster[1][1] == "" and table.concat(notes):find("could not be kept", 1, true))
+    utility.db.splitGroups14 = nil
 end)
 
 test("solo, players imported from the meter show their class and role, and the roster splits on meter data", function()

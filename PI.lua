@@ -241,9 +241,13 @@ function RaidUtility:PowerInfusion()
         return
     end
     local members = self.GetGroupMembers()
-    local meter = self:ReadMeter(members)
-    if meter then self:SetMeterReading(meter) end
-    local pairsList, list = self:AssignPI(self.draft, members, self.meter, self:PISides())
+    local meter, err = self:ReadMeter(members)
+    if not meter then
+        Print(err)
+        return
+    end
+    self:SetMeterReading(meter)
+    local pairsList, list = self:AssignPI(self.draft, members, meter, self:PISides())
     if #list == 0 then
         Print(L["No DPS on this roster to rank for Power Infusion."])
         return
@@ -265,7 +269,7 @@ function RaidUtility:PowerInfusion()
         return
     end
     if self.draftSplit then Print(L["This roster is a split, so each priest takes a target on their own side."]) end
-    local moved = self:PairPI(self.draft, members, pairsList, self:PISides(), self.meter)
+    local moved = self:PairPI(self.draft, members, pairsList, self:PISides(), meter)
     for _, pair in ipairs(pairsList) do
         Print(self.PIPairText(pair))
     end

@@ -72,31 +72,33 @@ StaticPopupDialogs["NSRTRAIDUTILITY_SAVE_SPLIT"] = {
     hideOnEscape = true,
 }
 
--- Players the split left out (offline, or sitting out in groups 5-8) stay on the roster, in their own group when
--- the split left it free, else in the first free slot from group 8 down, so Sort groups doesn't pull them in
+-- Players left out of the split stay on the roster. When only groups 1-4 play, keep them in groups 5-8.
 function RaidUtility:KeepLeftOut(roster, leftOut, notes)
     if #leftOut == 0 then return end
-    local members, used = self.GetGroupMembers(), {}
-    self.ForEachEntry(roster, function(g) used[g] = true end)
+    local members, minGroup = self.GetGroupMembers(), self:MaxGroup() == 4 and 5 or 1
     local function Free(g)
         for s = 1, 5 do
             if self.Trim(roster[g][s]) == "" then return s end
         end
     end
-    local offline, benched = 0, 0
+    local offline, benched, omitted = 0, 0, 0
     for _, member in ipairs(leftOut) do
         local g = member.subgroup or 8
-        local s = not used[g] and Free(g)
+        local s = g >= minGroup and Free(g)
         if not s then
-            for candidate = 8, 1, -1 do
-                s = not used[candidate] and Free(candidate)
+            for candidate = 8, minGroup, -1 do
+                s = Free(candidate)
                 if s then
                     g = candidate
                     break
                 end
             end
         end
-        if s then roster[g][s] = member.entry or self.EntryName(member, members) end
+        if s then
+            roster[g][s] = member.entry or self.EntryName(member, members)
+        else
+            omitted = omitted + 1
+        end
         if member.online == false then
             offline = offline + 1
         else
@@ -107,10 +109,13 @@ function RaidUtility:KeepLeftOut(roster, leftOut, notes)
     if benched > 0 then
         notes[#notes + 1] = L["%d player(s) sitting out in groups 5-8 were left out (Groups 1-4 only)."]:format(benched)
     end
+    if omitted > 0 then
+        notes[#notes + 1] = L["%d player(s) left out of the split could not be kept on the roster."]:format(omitted)
+    end
 end
 
 -- Balance the current raid into two sides and put the result in a new roster or the draft
--- (db.splitToNewRoster). Both replace the draft, so unsaved edits are confirmed first.
+-- (db.splitToNewRoster). A new roster asks before dropping edits; editing the open draft is undoable.
 -- In a raid this splits the raid. Out of one (planning solo, e.g. after From damage meter) it splits the players on
 -- the roster, with class, spec, role and DPS/HPS from the damage meter.
 function RaidUtility:GenerateSplit()
@@ -181,6 +186,10 @@ function RaidUtility:GenerateSplit()
         p.debuffDps = p.dps > 0 and p.dps or (n[p.role] and sum[p.role] / n[p.role]) or STAND_IN[p.role]
     end
     local sides, short = self.BalanceSides(players, opts)
+    if not sides then
+        Print(short)
+        return
+    end
     if opts.debuffMax then
         for _, check in ipairs({ { "DEMONHUNTER", L["Chaos Brand"] }, { "MONK", L["Mystic Touch"] } }) do
             local where, count = nil, 0

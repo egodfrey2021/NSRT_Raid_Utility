@@ -29,11 +29,11 @@ Requires [Northern Sky Raid Tools](https://www.curseforge.com/wow/addons/norther
   - **Raid buffs**: *on both sides* spreads Battle Shout, Fortitude, Skyfury, Arcane Intellect, Mark of the Wild, Blessing of the Bronze, Chaos Brand (+3% magic damage taken) and Mystic Touch (+5% physical damage taken) whenever the raid has two of that class. *For most damage* also places a lone Demon Hunter or Monk on the side where its debuff adds the most, moving magic dealers toward Chaos Brand and physical ones toward Mystic Touch while the sides stay within 3% DPS of each other
   - **Balance on**: the Overall session, the last fight, or roles only
 
-  - **Groups 1-4 only**: leaves players sitting out in groups 5-8 out of the split, the side totals and Power Infusion, and keeps them in those groups. On by default in a Mythic raid (20 players fight there); once you tick or untick it, your choice sticks. Offline players are always left out the same way
+  - **Groups 1-4 only**: leaves players sitting out in groups 5-8 out of the split, the side totals and Power Infusion, and keeps them in those groups. On by default in a Mythic raid (20 players fight there); once you tick or untick it, your choice sticks. Offline players are always left out the same way. Left-out players use free slots even in groups that already contain players; if inactive groups are full, the split reports anyone it could not keep
 
   Lust, rez and buffs are fixed after balancing by swapping players of the same role (and position), so the DPS balance barely moves; anything that can't be fixed (say, only one Bloodlust in the raid) is reported.
 - **Power Infusion** (the button, or `/nru pi`) ranks the DPS on the roster by expected PI gain (the spec's simulated gain x that player's DPS on the damage meter; **PI priority** in Split setup sets how far the sims count: *best specs* for well-practiced teams, *balanced* by default, or *best players* by DPS alone), says which priest should PI whom (each priest takes the best target on their side). Out of a raid it works on the roster's players with what the damage meter knows about them (a priest is recognised by class, targets by spec and DPS), and moves each priest into their target's group. The **Group priests with PI targets** split option does the same as part of Generate split, and marks targets with the Power Infusion icon (dimmed on the priest giving it; hover for who). Spec gains come from [Ulria's PI sims](https://docs.google.com/spreadsheets/d/1exJeu5eVe4bTmyg3WFx5PTxIWvDLi0j-WW-XWpGoG88), [bloodmallet](https://bloodmallet.com/chart/power_infusion) and [whoshouldgetpi](https://www.whoshouldgetpi.com/); see `PIData.lua` for the date
-- **Shift-right-click** a player to pin them to side A, again for side B, again to unpin. Generate split places pinned players first. Pins belong to the roster and are kept on Save, like any other edit
+- **Shift-right-click** a player to pin them to side A, again for side B, again to unpin. Generate split places pinned players first; it refuses a split with more than 20 players pinned to one side rather than dropping them. Pins belong to the roster and are kept on Save, like any other edit
 - In a raid, the **balance strip** under the groups compares the two sides as you edit: players, roles, DPS/HPS and the difference between the sides, plus a summary of the split settings and a **Change split setup** button. A caption above the groups says what the slot numbers are (DPS, HPS for healers, from which meter session, and the time they were read)
 
 ## Slash commands
@@ -51,7 +51,7 @@ Requires [Northern Sky Raid Tools](https://www.curseforge.com/wow/addons/norther
 ## Notes
 
 - Moving players requires raid leader or assistant, and players in combat can't be moved.
-- Split balancing reads the damage meter out of combat; reset the meter before a session if you want fresh numbers. If the meter has no session data, the split balances roles only; a meter read error is reported instead.
+- Split balancing reads the damage meter out of combat; reset the meter before a session if you want fresh numbers. If the meter has no session data, the split balances roles only; a meter read error is reported instead. Power Infusion also stops on a meter read error instead of using an older reading.
 - This is an unofficial companion addon and isn't affiliated with Northern Sky or the NSRT authors.
 
 ## License

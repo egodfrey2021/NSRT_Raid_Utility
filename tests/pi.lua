@@ -273,6 +273,21 @@ test("PI priority: specs, balanced or players decides between a top spec and a s
     NSI.GetSpecs = nil
 end)
 
+test("PI refuses a failed meter read instead of using a cached reading", function()
+    Raid({ { "Shadow", "PRIEST", "DAMAGER", 258 }, { "Assa", "ROGUE", "DAMAGER", 259 } })
+    Meter({ Assa = 200000 })
+    local cached = utility:ReadMeter(utility.GetGroupMembers())
+    utility:SetMeterReading(cached)
+    Draft({ "Shadow", "Assa" })
+    H.SetMeter(function() error("PI meter failure") end)
+    local before = #H.messages
+    utility:PowerInfusion()
+    assert(#H.messages == before + 1 and H.LastMessage():find("PI meter failure", 1, true), H.LastMessage())
+    assert(utility.meter == cached and utility.draft[1][1] == "Shadow" and utility.draft[1][2] == "Assa")
+    NSI.GetSpecs = nil
+    utility:LoadDraft()
+end)
+
 test("the PI priority setting is picked in the Split dropdown and named by /nru pi", function()
     Raid({ { "Shadow", "PRIEST", "DAMAGER", 258 }, { "Assa", "ROGUE", "DAMAGER", 259 } })
     Meter({ Assa = 200000 })
