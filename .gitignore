@@ -1,3 +1,5 @@
 .release/
 .env
 *.zip
+.luals/
+.vscode/

@@ -1,0 +1,64 @@
+# Local dev tools. LuaJIT 2.1 is Lua 5.1 compatible, matching the WoW client.
+#   mise exec -- luajit tests/run.lua
+#   mise exec -- luacheck .
+#   mise run check        format check + lint + types + tests (what CI runs)
+#   mise run fmt          format all Lua files with StyLua (stylua.toml)
+#   mise run luals-setup  fetch the WoW API annotations the editor and typecheck use (into .luals/)
+[tools]
+"conda:luajit" = "2.1.1744318430"
+"github:lunarmodules/luacheck" = "1.2.0"
+# Same LuaLS version the VS Code Lua extension bundles, so CI and the editor report the same problems
+"aqua:LuaLS/lua-language-server" = "3.19.1"
+"aqua:JohnnyMorganz/StyLua" = "2.5.2"
+
+[env]
+# Ketho/vscode-wow-api tag: keep in step with the WoW API VS Code extension version
+WOW_API_VERSION = "0.22.3"
+
+[tasks.test]
+description = "Run the addon behaviour tests"
+run = "luajit tests/run.lua"
+
+[tasks.lint]
+description = "Lint with luacheck and check for non-ASCII"
+run = [
+  "luacheck . --no-color",
+  '''if grep -rnP "[^\x00-\x7F]" --include="*.lua" --include="*.toc" --exclude-dir=.git --exclude-dir=.luals --exclude-dir=.release .; then echo "Non-ASCII characters found; see .github/CONTRIBUTING.md"; exit 1; fi''',
+]
+
+[tasks.luals-setup]
+description = "Fetch the WoW API annotations (Ketho/vscode-wow-api Annotations/Core) into .luals/"
+run = '''
+dir=.luals/wow-api
+if [ "$(cat "$dir/VERSION" 2>/dev/null)" = "$WOW_API_VERSION" ]; then exit 0; fi
+rm -rf "$dir" && mkdir -p "$dir"
+curl -fsSL "https://codeload.github.com/Ketho/vscode-wow-api/tar.gz/refs/tags/$WOW_API_VERSION" \
+  | tar -xz -C "$dir" --strip-components=2 "vscode-wow-api-$WOW_API_VERSION/Annotations/Core"
+echo "$WOW_API_VERSION" > "$dir/VERSION"
+echo "WoW API annotations $WOW_API_VERSION in $dir"
+'''
+
+[tasks.typecheck]
+description = "Type-check with lua-language-server, as the editor does (.luarc.json, types/)"
+depends = ["luals-setup"]
+run = "lua-language-server --check=. --checklevel=Hint --check_format=pretty --logpath=.luals/log"
+
+[tasks.fmt]
+description = "Format all Lua files with StyLua"
+run = "stylua ."
+
+[tasks.fmt-check]
+description = "Fail if any Lua file isn't formatted"
+run = "stylua --check ."
+
+[tasks.check]
+description = "Format check, lint, type-check and test"
+depends = ["fmt-check", "lint", "typecheck", "test"]
+
+[tasks.pi-data]
+description = "Regenerate src/split/PIData.lua (Power Infusion gains) from the sims and logs; needs python3 and network"
+run = ["python3 tools/update-pi-data.py", "stylua src/split/PIData.lua"]
+
+[tasks.package]
+description = "Build the release folder without uploading and check its contents"
+run = "bash tools/check-package.sh"
