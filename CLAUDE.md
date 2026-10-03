@@ -17,8 +17,8 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
   then damage are distributed per role, each player to the side with the lower role total (odd one out
   of a role goes to the smaller side). Values come from Blizzard's `C_DamageMeter` Overall session
   (`amountPerSecond`; DamageDone for tanks/dps, HealingDone for healers). Names/values can be secret in
-  combat, so the split refuses in combat and skips secret values. Layouts: odd/even groups or top/bottom
-  groups (internal key "consecutive"). Result goes to the Rosters draft or straight to Arrange.
+  combat, so the split refuses in combat and skips secret values. Layouts: "Alternating" (key "oddeven") or
+  "Grouped" (key "consecutive"). Result goes to the Rosters draft or straight to Arrange.
 
 ## Files
 - `Roster.lua`: data model, draft, name resolution, invite, arrange.

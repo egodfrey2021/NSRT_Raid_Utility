@@ -3,13 +3,13 @@ local _, Extras = ...
 
 -- Side layouts. Each returns the group numbers for side 1 and side 2, given groups needed per side.
 Extras.SplitLayouts = {
-    { key = "oddeven", label = "Odd / even groups (1, 3 vs 2, 4)",
+    { key = "oddeven", label = "Alternating (1, 3 vs 2, 4)",
       groups = function(n)
           local a, b = {}, {}
           for i = 1, n do a[i], b[i] = 2 * i - 1, 2 * i end
           return a, b
       end },
-    { key = "consecutive", label = "Top / bottom groups (1-2 vs 3-4)",
+    { key = "consecutive", label = "Grouped (1-2 vs 3-4)",
       groups = function(n)
           local a, b = {}, {}
           for i = 1, n do a[i], b[i] = i, n + i end
