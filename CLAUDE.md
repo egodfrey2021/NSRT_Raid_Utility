@@ -47,7 +47,7 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 - Repo is packaged with BigWigsMods/packager via `.github/workflows/release.yml` on tag push.
 - `## Version: @project-version@` is replaced by the git tag. `.pkgmeta` excludes README/CLAUDE/media.
 - Needs repo secret `CF_API_TOKEN` (CurseForge API token).
-- TODO after the CurseForge project exists: add `## X-Curse-Project-ID: <id>` to the .toc.
+- CurseForge project ID 1722253 is in the .toc (`X-Curse-Project-ID`); GitHub repo egodfrey2021/NSRT_Extras.
 - CurseForge Relations: set Northern Sky Raid Tools as a required dependency.
 - Public name: "Roster for NSRT". Folder/SavedVariables stay NSRT_Extras / NSRTExtrasDB so existing data carries over.
 - Not yet tested in-game beyond basic UI; syntax-checked only.

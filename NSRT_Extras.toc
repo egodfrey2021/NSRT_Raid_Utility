@@ -6,6 +6,7 @@
 ## Dependencies: NorthernSkyRaidTools
 ## OptionalDeps: NorthernSkyRaidTools_UI
 ## SavedVariables: NSRTExtrasDB
+## X-Curse-Project-ID: 1722253
 
 Roster.lua
 RosterUI.lua
