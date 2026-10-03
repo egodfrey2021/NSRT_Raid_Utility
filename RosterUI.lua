@@ -109,12 +109,9 @@ local function Drop(src, tgt, value)
     if src.kind == "group" and tgt.kind == "group" then
         d[src.g][src.s], d[tgt.g][tgt.s] = d[tgt.g][tgt.s], d[src.g][src.s]   -- move or swap
     elseif src.kind == "bench" and tgt.kind == "group" then
-        local displaced = d[tgt.g][tgt.s]
-        d[tgt.g][tgt.s] = value
-        if displaced ~= "" then Extras:AddToPool(displaced) end   -- displaced player returns to Unassigned
+        d[tgt.g][tgt.s] = value        -- a displaced raid member shows up in Unassigned again
     elseif src.kind == "group" and tgt.kind == "bench" then
-        Extras:AddToPool(value)        -- un-place; stays in the pool
-        d[src.g][src.s] = ""
+        d[src.g][src.s] = ""           -- un-place
     else
         return
     end
@@ -169,7 +166,6 @@ local function CreateEditor(parent)
         if self.cancelled or not slot then return end
         local value = Extras.Trim(self:GetText())
         if value ~= (Extras.draft[slot.g][slot.s] or "") then
-            Extras:AddToPool(value)
             Extras.draft[slot.g][slot.s] = value
             Extras:MarkDirty()
             Extras:RefreshUI()
@@ -213,12 +209,6 @@ local function CreateSlot(parent, kind, w, h)
         end)
         b:SetScript("OnDoubleClick", function(self, button)
             if button == "LeftButton" then OpenEditor(self) end
-        end)
-    else
-        b:SetScript("OnClick", function(self, button)   -- right-click removes from the player pool
-            if button ~= "RightButton" or not self.value then return end
-            Extras:RemoveFromPool(self.value)
-            Extras:RefreshUI()
         end)
     end
     return b
@@ -271,8 +261,7 @@ function Extras:BuildRosterTab(frame, NSI)
     -- Row 2: actions (all work on the draft)
     local actions = {
         { "Fill from current raid", function()
-            local added = self:FillFromRaid()
-            if added and added > 0 then self:RefreshUI() end
+            if self:FillFromRaid(self.draft) then self:MarkDirty(); self:RefreshUI() end
         end },
         { "Clear all", function() self.draft = self.NewRoster(); self:MarkDirty(); self:RefreshUI() end },
         { "Invite missing", function() self:InviteMissing(self.draft) end },
@@ -298,7 +287,7 @@ function Extras:BuildRosterTab(frame, NSI)
         end
     end
 
-    -- Unassigned: everyone in the shared player pool who isn't placed in this roster
+    -- Unassigned: everyone in your raid/party who isn't placed in this roster
     local bench = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     bench.kind = "bench"
     bench:SetPoint("TOPLEFT", frame, "TOPLEFT", BENCH_X - 4, GRID_Y + 4)
@@ -360,7 +349,7 @@ function Extras:RefreshUI()
     end
     local extra = #list - #ui.benchSlots
     ui.benchMore:SetText(extra > 0 and ("+" .. extra .. " more") or "")
-    ui.benchEmpty:SetText(#list == 0 and (#self.db.pool == 0 and "Empty. Use Fill from current raid." or "Everyone is placed.") or "")
+    ui.benchEmpty:SetText(#list == 0 and (IsInGroup() and "Everyone is placed." or "Not in a group.") or "")
 
     ui.status:SetText(self.dirty and "|cFFFF9900Unsaved changes|r" or "|cFF55FF55Saved|r")
     ui.dropdown:Refresh()

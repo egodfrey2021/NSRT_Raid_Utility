@@ -8,7 +8,7 @@ Extras.Print = Print
 local function Trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 Extras.Trim = Trim
 
--- A roster is 8 groups x 5 slots. The player pool (db.pool) is shared by all rosters.
+-- A roster is 8 groups x 5 slots.
 function Extras.NewRoster()
     local r = {}
     for g = 1, 8 do r[g] = { "", "", "", "", "" } end
@@ -28,12 +28,8 @@ function Extras:InitDB()
     local db = NSRTExtrasDB
     db.rosters = db.rosters or {}
     if not next(db.rosters) then db.rosters["Default"] = self.NewRoster() end
-    db.pool = db.pool or {}
-    self.db = db
-    for _, roster in pairs(db.rosters) do       -- migrate 0.3.x per-roster lists into the shared pool
-        for _, name in ipairs(roster.bench or {}) do self:AddToPool(name) end
-        roster.bench = nil
-    end
+    db.pool = nil                               -- old shared player pool; Unassigned is now just the live group
+    for _, roster in pairs(db.rosters) do roster.bench = nil end
     if not (db.active and db.rosters[db.active]) then db.active = next(db.rosters) end
     self.db = db
     self:LoadDraft()
@@ -108,57 +104,48 @@ local function CurrentGroupNames()
     return names
 end
 
--- ------------------------------------------------------------
--- Shared player pool: filled by "Fill from current raid", used by every roster.
--- Unassigned = current raid/party members + pool members, minus anyone placed in the roster being edited.
--- ------------------------------------------------------------
+-- Unassigned = current raid/party members not placed in the roster being edited.
 local function Key(name) return (strsplit("-", Trim(name))):lower() end
-
-function Extras:AddToPool(name)
-    name = Trim(name)
-    if name == "" then return false end
-    local pool, key = self.db.pool, Key(name)
-    for _, v in ipairs(pool) do if Key(v) == key then return false end end
-    pool[#pool + 1] = name
-    table.sort(pool, function(x, y) return x:lower() < y:lower() end)
-    return true
-end
-
-function Extras:RemoveFromPool(name)
-    local pool, key = self.db.pool, Key(name)
-    for i = #pool, 1, -1 do if Key(pool[i]) == key then table.remove(pool, i) end end
-end
 
 function Extras:GetUnassigned(roster)
     local placed = {}
     for g = 1, 8 do for s = 1, 5 do
         local v = Trim(roster[g][s])
-        if v ~= "" then placed[Key(v)] = true end
+        if v ~= "" then
+            placed[Key(v)] = true
+            local _, char = self:ResolveRaidIndex(v)    -- nickname entries hide the real character too
+            if char then placed[Key(char)] = true end
+        end
     end end
-    -- Pool members plus anyone currently in your raid/party, minus whoever is placed
     local list, seen = {}, {}
-    local function Consider(name)
+    for _, name in ipairs(CurrentGroupNames()) do
         local key = Key(name)
         if key ~= "" and not placed[key] and not seen[key] then
             seen[key] = true
             list[#list + 1] = name
         end
     end
-    for _, name in ipairs(CurrentGroupNames()) do Consider(name) end
-    for _, name in ipairs(self.db.pool) do Consider(name) end
     table.sort(list, function(x, y) return x:lower() < y:lower() end)
     return list
 end
 
-function Extras:FillFromRaid()
-    local names = CurrentGroupNames()
-    if #names == 0 then Print("You are not in a group.") return end
-    local added = 0
-    for _, name in ipairs(names) do
-        if self:AddToPool(name) then added = added + 1 end
+-- Copy the group's current layout (raid subgroups, or the party as group 1) into roster
+function Extras:FillFromRaid(roster)
+    if not IsInGroup() then Print("You are not in a group.") return end
+    for g = 1, 8 do for s = 1, 5 do roster[g][s] = "" end end
+    if IsInRaid() then
+        local count = {}
+        for i = 1, GetNumGroupMembers() do
+            local name, _, subgroup = GetRaidRosterInfo(i)
+            if name and subgroup then
+                count[subgroup] = (count[subgroup] or 0) + 1
+                if count[subgroup] <= 5 then roster[subgroup][count[subgroup]] = name end
+            end
+        end
+    else
+        for s, name in ipairs(CurrentGroupNames()) do roster[1][s] = name end
     end
-    Print(added > 0 and ("Added " .. added .. " player(s) to the player pool.") or "Everyone in the group is already in the pool.")
-    return added
+    return true
 end
 
 function Extras:InviteMissing(roster)

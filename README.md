@@ -8,7 +8,9 @@ Requires [Northern Sky Raid Tools](https://www.curseforge.com/wow/addons/norther
 
 - Adds a **Rosters** tab to the NSRT options window (`/ns`, or `/nsx` to jump straight to it)
 - Lay out all 8 groups by drag and drop: move, swap, or drag back to Unassigned
-- **Unassigned** shows everyone in your raid who isn't placed yet, plus a saved player pool so you can plan before people are online
+- **Unassigned** shows everyone in your raid who isn't placed yet
+- **Fill from current raid** copies your raid's current groups into the roster
+- Double-click a slot to type a name, so you can plan for people who aren't online
 - Keep as many rosters as you like (one per boss, progression vs. farm, etc.)
 - Edits stay pending until you press **Save**, and **Revert** undoes them
 - **Arrange groups** moves everyone into place using NSRT's own group sorter

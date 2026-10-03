@@ -5,18 +5,17 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 
 ## What it does
 - 8 groups x 5 slots per roster; many named rosters saved in `NSRTExtrasDB.rosters`.
-- **Unassigned** panel = (current raid/party members + saved player pool `NSRTExtrasDB.pool`)
-  minus anyone placed in the roster being edited. Pool is shared by all rosters and saves
-  immediately; "Fill from current raid" adds the group to the pool.
-- Drag and drop between slots (move/swap), Unassigned to slot (place; displaced player goes back),
-  slot to Unassigned (un-place). Click empty slot / double-click name to type. Right-click clears a
-  slot, or removes a name from the pool.
+- **Unassigned** panel = current raid/party members minus anyone placed in the roster being edited
+  (nothing else; a shared "player pool" existed before v1.0.1 and was removed because names leaked
+  between rosters). "Fill from current raid" copies the live subgroup layout into the draft.
+- Drag and drop between slots (move/swap), Unassigned to slot (place), slot to Unassigned (un-place).
+  Click empty slot / double-click name to type (for planning offline players). Right-click clears a slot.
 - Group edits go to a draft (`Extras.draft`); **Save** commits, **Revert** discards, switching or
   creating rosters with unsaved edits asks to confirm.
 - **Arrange groups** sorts the real raid to match the draft; `/nsx arrange` uses the saved roster.
 
 ## Files
-- `Roster.lua`: data model, pool, draft, name resolution, invite, arrange.
+- `Roster.lua`: data model, draft, name resolution, invite, arrange.
 - `RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
 - `Core.lua`: injects the tab into NSRT's window, events, `/nsx` slash command.
 
