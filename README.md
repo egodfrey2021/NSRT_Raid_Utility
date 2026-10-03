@@ -6,46 +6,53 @@ Requires [Northern Sky Raid Tools](https://www.curseforge.com/wow/addons/norther
 
 ## Features
 
-- Adds a **Rosters** tab to the NSRT options window (`/ns`, `/nru`, or the minimap addon drawer)
-- Lay out all 8 groups by drag and drop: move, swap, or drag back to the unplaced list. Drag a group's header onto another group to swap the two groups
-- The **not placed** list shows everyone in your raid or party who isn't in the roster yet (tanks, then healers, then damage), with scrolling for full raids; double-click a name to drop it in the first empty slot
-- Slots show role icons and class colors; names you typed for players who aren't in your group are greyed out. Markers take no room from the name: a colored left edge for a pinned side, the Power Infusion icon for PI. Hover a slot for the details; a one-line legend sits above the groups
-- **Fill from raid** copies your raid's current groups into the roster
-- Click an empty slot or double-click a name to type, so you can plan for people who aren't online; Tab / Shift-Tab moves to the next / previous slot
-- **Import/Export** opens the list tools: import NSRT/WoWUtils positional `invitelist:` text into the draft, export the draft in the same NSRT format with all empty slots preserved, or paste a WoWAudit multi-encounter invite export and choose which encounter's names to put into the draft. WoWAudit invites contain no group positions: names fill slots in list order. **Export WoWAudit** copies a `raidlist:` snapshot of the *live* group (names, available spec IDs and class IDs) for a WoWAudit raid plan, not the draft or its group layout. Exporting never saves or rearranges anyone. **Import NSRT list** also accepts plain comma/space-separated names and offers **From damage meter**: add players seen in the Overall session who aren't on the draft yet, into empty slots by role and value. WoWUtils can export NSRT invite lists, but whether its website accepts them as input is unverified; the reverse-direction export is for tools that accept NSRT-format lists
-- Names imported from the damage meter keep the class and role the meter saw (class colors and role icons; the tooltip names the spec), so a roster planned solo reads like a raid
-- Each slot shows the player's DPS (HPS for healers) right-aligned, like a damage meter, read from the built-in meter's Overall session when the tab opens, when the group changes and after each fight. Works solo, in a party or in a raid
-- Keep as many rosters as you like (one per boss, progression vs. farm, etc.). **Duplicate** copies the open roster, unsaved changes included, to a new one (build a base comp, then one copy per boss); **Rename** renames it. Pins and the split mark come along
-- Edits stay pending until you press **Save**. **Undo** steps back one change at a time (up to 20: drags, clears, imports, and a split into the open roster), and **Revert** goes back to the last save. Fill from raid, Clear all, imports and a split into the open roster happen right away (Undo brings back what they replaced); switching rosters, New, Revert and a split saved as a new roster ask before dropping unsaved changes, since Undo can't reach across rosters. **Unsaved changes** only shows while the roster differs from its last save
-- **Sort groups** moves everyone into place using NSRT's own group sorter, unsaved changes included, and tells you when it's done
-- **Invite missing** invites players on the roster who aren't in the group; hover it to see who that would be
-- Results also show in the tab, not only in chat: the newest one under the groups, and **History** for everything recent (a split's full notes, PI pairings)
-- Disabled buttons say why when you hover them (not in a raid, nothing to save, not raid lead or assist, in combat, ...). In combat, Sort groups, Split raid..., Power Infusion and Fill from raid are greyed out until it ends
-- **Post to raid** (next to History) sends the split's sides and the Power Infusion pairs to raid chat, only when you click it; hover it to see the lines first. In the preview raid it only prints them
-- Works with NSRT nicknames and realm-qualified character names; use `Name-Realm` when two players share a name
-- **Split raid...** opens the **Split setup** panel with every split setting in one place (sides layout, what to balance on, the optional rules below, PI priority, and **As new roster**) and its **Generate split** button. Generate split divides the raid into two balanced sides (out of a raid, it splits the players on the roster instead, using what the damage meter knows about them, so you can plan from a meter import while solo), as **Evens/Odds** groups (1/3/5/7 vs 2/4/6/8) or **Grouped** (e.g. 1-2 vs 3-4). Tanks and healers are spread evenly (players without an assigned role use the spec NSRT has seen, otherwise count as damage), then players are balanced using the built-in damage meter's Overall session (DPS, and HPS for healers). With **As new roster** checked (the default) the split becomes a new roster; unchecked, it replaces the draft you're editing. Adjust it by dragging, like any roster. Optional rules, all off by default:
-  - **Even melee/ranged**: spreads melee and ranged players evenly among healers and among damage dealers, still balancing DPS/HPS (specs come from NSRT, the damage meter, or the class; a spec that hasn't been seen counts as ranged)
-  - **Lust and brez**: a Bloodlust/Heroism on each side and up to 2 battle res per side
-  - **Raid buffs**: *on both sides* spreads Battle Shout, Fortitude, Skyfury, Arcane Intellect, Mark of the Wild, Blessing of the Bronze, Chaos Brand (+3% magic damage taken) and Mystic Touch (+5% physical damage taken) whenever the raid has two of that class. *For most damage* also places a lone Demon Hunter or Monk on the side where its debuff adds the most, moving magic dealers toward Chaos Brand and physical ones toward Mystic Touch while the sides stay within 3% DPS of each other
-  - **Balance on**: the Overall session, the last fight, or roles only
+### Build a roster
 
-  - **Groups 1-4 only**: leaves players sitting out in groups 5-8 out of the split, the side totals and Power Infusion, and keeps them in those groups. On by default in a Mythic raid (20 players fight there); once you tick or untick it, your choice sticks. Offline players are always left out the same way. Left-out players use free slots even in groups that already contain players; if inactive groups are full, the split reports anyone it could not keep
+Open the **Rosters** tab from `/ns`, `/nru`, or the minimap addon drawer. Each roster has eight groups of five slots.
+You can keep separate rosters for different bosses or comps.
 
-  Lust, rez and buffs are fixed after balancing by swapping players of the same role (and position), so the DPS balance barely moves; anything that can't be fixed (say, only one Bloodlust in the raid) is reported.
-- **Power Infusion** (the button, or `/nru pi`) ranks the DPS on the roster by expected PI gain (the spec's simulated gain x that player's DPS on the damage meter; **PI priority** in Split setup sets how far the sims count: *best specs* for well-practiced teams, *balanced* by default, or *best players* by DPS alone), says which priest should PI whom (each priest takes the best target on their side). Out of a raid it works on the roster's players with what the damage meter knows about them (a priest is recognised by class, targets by spec and DPS), and moves each priest into their target's group. The **Group priests with PI targets** split option does the same as part of Generate split, and marks targets with the Power Infusion icon (dimmed on the priest giving it; hover for who). Spec gains come from [Ulria's PI sims](https://docs.google.com/spreadsheets/d/1exJeu5eVe4bTmyg3WFx5PTxIWvDLi0j-WW-XWpGoG88), [bloodmallet](https://bloodmallet.com/chart/power_infusion) and [whoshouldgetpi](https://www.whoshouldgetpi.com/); see `PIData.lua` for the date
-- **Shift-right-click** a player to pin them to side A, again for side B, again to unpin. Generate split places pinned players first; it refuses a split with more than 20 players pinned to one side rather than dropping them. Pins belong to the roster and are kept on Save, like any other edit
-- In a raid, the **balance strip** under the groups compares the two sides as you edit: players, roles, DPS/HPS and the difference between the sides, plus a summary of the split settings and a **Change split setup** button. A caption above the groups says what the slot numbers are (DPS, HPS for healers, from which meter session, and the time they were read)
+- Drag players between slots, back to **Not placed**, or between group headers to swap whole groups. The Not placed list shows current raid or party members who have no slot, with tanks and healers first. Double-click a name to place it in the first empty slot.
+- Click an empty slot or double-click a name to type someone who isn't in the group. Tab and Shift-Tab move between slots. NSRT nicknames work; use `Name-Realm` if two players share a name.
+- **Fill from raid** copies the current raid groups. Slots show roles, class colors, DPS (HPS for healers), and PI or side-pin markers. Hover a slot for details. Meter numbers come from the built-in damage meter's Overall session and refresh when the tab opens, the group changes, or a fight ends.
+- Changes go into the **draft**, your unsaved roster. **Save** keeps them; **Undo** steps back up to 20 edits, including imports and splits into the open draft. **Revert** returns to the last save. Switching rosters, creating a new roster, Revert, and saving a split as a new roster ask before discarding unsaved changes because Undo cannot cross rosters.
+- **Duplicate** copies the draft, including pins and whether it is a split, into a new roster. **Rename** changes the open roster's name.
+- **Sort groups** uses the draft and NSRT's group sorter to move raiders. **Invite missing** invites players on the draft who aren't in the group; hover to see the invite list. Results appear under the groups and in **History**. Disabled buttons explain why on hover.
+
+### Import and export
+
+- **Import NSRT list** accepts NSRT or WoWUtils positional `invitelist:` text, preserving empty slots. It also accepts plain names. **Export NSRT list** copies the draft in the same format.
+- **From damage meter** adds players from the Overall session to empty slots by role and damage or healing. Imported names keep their class, role, and spec when the meter knows them, even if you plan the roster solo.
+- Paste a WoWAudit encounter export and choose an encounter to import its invitees into the draft. That format has names but no group slots, so names fill slots in order. **Export WoWAudit** copies a `raidlist:` of the *live group* with available specs and classes for a WoWAudit raid plan; it does not export the draft or its group layout.
+
+These tools are under **Import/Export**. WoWUtils exports NSRT lists. Whether its website accepts them for import is unverified; the NSRT-format export is for tools that accept that format.
+
+### Split the raid and assign PI
+
+**Split raid...** opens **Split setup**. **Generate split** divides raiders into two sides, spreading tanks and healers before balancing DPS and HPS from the built-in meter. It uses roles when the meter has no data. Out of a raid, it can split players on the draft using what the meter knows about them. Choose **Evens/Odds** (groups 1/3/5/7 vs 2/4/6/8) or **Grouped** (for example, 1-2 vs 3-4). By default the result goes into a new roster; uncheck **As new roster** to replace the draft, then Save when you're happy with it.
+
+Split setup also has these options:
+
+- **Even melee/ranged** spreads melee and ranged healers and DPS across both sides. Unknown specs count as ranged.
+- **Lust and brez** aims for Bloodlust/Heroism on both sides and up to two battle res per side.
+- **Raid buffs** spreads class buffs across sides when the raid has two providers. It covers Battle Shout, Fortitude, Skyfury, Arcane Intellect, Mark of the Wild, Blessing of the Bronze, Chaos Brand (+3% magic damage taken), and Mystic Touch (+5% physical damage taken). **For most damage** also places a lone Demon Hunter or Monk where their debuff helps most while keeping the sides within 3% DPS of each other.
+- **Balance on** uses the Overall meter session, the last fight, or roles only.
+- **Groups 1-4 only** leaves raiders sitting out in groups 5-8, and offline raiders, out of the split, side totals, and PI. It starts on in a Mythic raid; your choice sticks after you change it. Left-out raiders stay on the roster in groups 5-8 where there is room. The split reports any it cannot keep.
+
+For buffs, lust, and brez, the tool swaps players of the same role and position after balancing and reports anything it could not spread. Shift-right-click a player to pin them to side A, again for B, and again to unpin. Pins stay with the roster on Save; a split stops if more than 20 players are pinned to one side. The balance strip shows each side's roles and DPS/HPS as you edit.
+
+**Power Infusion** (or `/nru pi`) ranks DPS by expected PI gain and pairs priests with targets. It moves priests into their targets' groups on the draft when it can; Save to keep the moves. **PI priority** controls whether the ranking trusts spec sims, player DPS, or both. **Group priests with PI targets** runs the pairing during Generate split, with PI markers on the slots. Out of a raid, PI uses players on the draft with whatever the meter knows about them. The spec gains come from [Ulria's PI sims](https://docs.google.com/spreadsheets/d/1exJeu5eVe4bTmyg3WFx5PTxIWvDLi0j-WW-XWpGoG88), [bloodmallet](https://bloodmallet.com/chart/power_infusion), and [whoshouldgetpi](https://www.whoshouldgetpi.com/); see `PIData.lua` for the date.
+
+**Post to raid** sends the split sides and PI pairs to raid chat when you click it. Hover to preview the lines. In a preview raid it prints them instead of sending them.
 
 ## Slash commands
 
 - `/nru`: open the Rosters tab
-- `/nru split`: open the Rosters tab and generate a split
-- `/nru arrange [roster]`: sort the raid using the active (or named) **saved** roster; the tab's Sort groups button uses your unsaved changes
+- `/nru split`: open Rosters and generate a split immediately with the current split settings
+- `/nru sort [roster]`: sort the raid using the active (or named) **saved** roster; the **Sort groups** button uses the unsaved draft
 - `/nru invite`: invite players on the active **saved** roster who are not in the group
-- `/nru pi`: Power Infusion priority list, who gives PI to whom, and each priest moved into their target's group on the draft
-- `/nru preview [size]`: toggle a made-up raid (default 20, up to 40 players) to try the tab without a group.
-  Arrange and Invite only report what they would do; nothing is sent to the game
-- `/nru debug`: toggle debug output (what each roster entry resolved to when arranging)
+- `/nru pi`: rank PI targets and move priests into their targets' groups on the draft when possible; Save to keep the moves
+- `/nru preview [2-40|off]`: try the tab solo with a made-up raid (default 20 players). **Sort groups** and **Invite missing** are dry runs. Run `/nru preview` again or use `off` to leave
+- `/nru debug`: toggle debug output (what each roster entry resolved to during a sort)
 - `/nsx` still works as an alias for `/nru`
 
 ## Notes
@@ -120,9 +127,9 @@ globals, and a preview raid round trip. If one fails after an NSRT update, NSRT 
 Release builds leave the file out (the `.toc` lists it in a `#@do-not-package@` block), and without WoWUnit it does
 nothing.
 
-In game, `/nru preview [size]` gives you a made-up raid (default 20 players) so you can try the tab solo.
-Arrange and Invite only report what they would do. Anything that really moves or invites players needs a real
-group where you are leader or assistant. `/nru debug` prints what each roster entry resolved to when arranging.
+In game, `/nru preview [2-40|off]` gives you a made-up raid (default 20 players) so you can try the tab solo.
+Sort groups and Invite missing only report what they would do. Anything that really moves or invites players needs a real
+group where you are leader or assistant. `/nru debug` prints what each roster entry resolved to during a sort.
 
 ### 5. Contributing
 

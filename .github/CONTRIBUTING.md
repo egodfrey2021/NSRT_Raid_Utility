@@ -71,7 +71,7 @@ round of review. For anything bigger than a fix, open an issue first and describ
   template, or an NSRT function. Keep them read-only: no saved-data changes, nothing sent to the game, and leave a
   preview raid you opened yourself alone.
 - The harness can't prove anything about real frames or real NSRT. In game, try the change solo with
-  `/nru preview` first (the tab runs on a made-up raid; Arrange and Invite are dry runs), then in a real group
+  `/nru preview` first (the tab runs on a made-up raid; sorting and inviting are dry runs), then in a real group
   for anything that moves players. Say in the PR what you tested.
 - Code that asks who is in the group goes through `RaidUtility.GetGroupMembers()` / `InRaid()` / `InGroup()`, so
   the preview raid and the tests cover it.

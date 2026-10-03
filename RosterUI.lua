@@ -872,7 +872,7 @@ function RaidUtility:BuildRosterTab(frame, C)
         local who = table.concat(shown, ", ") .. (#list > 5 and " " .. L["+%d more"]:format(#list - 5) or "")
         return L[inviteTip] .. "\n\n" .. L["Would invite: %s"]:format(who)
     end, function() self:InviteMissing(self.draft) end)
-    local arrangeTip = "Sort the raid into these groups, unsaved changes included. /nru arrange uses the saved roster."
+    local arrangeTip = "Sort the raid into these groups, unsaved changes included. /nru sort uses the saved roster."
     ui.arrangeButton = Action(L["Sort groups"], 125, L[arrangeTip], function() self:Arrange(nil, self.draft) end)
     local piTip = "List who should get Power Infusion and move each priest into their target's group (/nru pi)."
     ui.piButton = Action(L["Power Infusion"], 130, L[piTip], function() self:PowerInfusion() end)

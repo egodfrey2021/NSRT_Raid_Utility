@@ -1,6 +1,6 @@
 -- Preview raid: a made-up raid for trying the Rosters tab and its split tools without a group (/nru preview).
 -- RaidUtility.GetGroupMembers() returns it while it's on, so the tab runs its normal code. Nothing in preview
--- reaches the game: Arrange and Invite only report what they would do, and Arrange moves the fake members.
+-- reaches the game: sorting and inviting only report what they would do, and sorting moves the fake members.
 local _, RaidUtility = ...
 local L = RaidUtility.L
 local Preview = {}

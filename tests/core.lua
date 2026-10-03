@@ -38,6 +38,18 @@ test("/nru split opens the Rosters tab and generates a split", function()
     assert(menu.CurrentName == utility.ROSTER_TAB and generated)
 end)
 
+test("/nru sort uses the saved roster and the old arrange command no longer sorts", function()
+    local sort, calls = utility.Arrange, {}
+    utility.Arrange = function(_, name, roster) calls[#calls + 1] = { name = name, roster = roster } end
+    SlashCmdList.NSRTRAIDUTILITY("sort")
+    SlashCmdList.NSRTRAIDUTILITY("sort Boss roster")
+    SlashCmdList.NSRTRAIDUTILITY("arrange")
+    utility.Arrange = sort
+    assert(#calls == 2, "unexpected sort command accepted")
+    assert(calls[1].name == nil and calls[1].roster == nil, "default sort should use the saved roster")
+    assert(calls[2].name == "Boss roster" and calls[2].roster == nil, "named sort should use a saved roster")
+end)
+
 test("the addon compartment opens the Rosters tab", function()
     NSRTRaidUtility_OnAddonCompartmentClick()
     assert(menu.CurrentName == utility.ROSTER_TAB)

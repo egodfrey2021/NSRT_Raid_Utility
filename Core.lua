@@ -145,7 +145,7 @@ function NSRTRaidUtility_OnAddonCompartmentClick() OpenTab(RaidUtility.ROSTER_TA
 -- /nru                 open the Rosters tab (/nsx still works)
 -- /nru split           open the Rosters tab and generate a split
 -- /nru pi              Power Infusion priority, and each priest into their target's group on the draft
--- /nru arrange [name]  sort groups using the active (or named) roster
+-- /nru sort [name]     sort groups using the active (or named) saved roster
 -- /nru invite          invite roster players not in the group
 -- /nru debug           toggle debug output
 -- /nru preview [size]  toggle a made-up raid (2-40 players, default 20) for trying the tab solo
@@ -154,7 +154,7 @@ SLASH_NSRTRAIDUTILITY2 = "/nsx"
 SlashCmdList.NSRTRAIDUTILITY = function(msg)
     local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
     cmd = cmd:lower()
-    if cmd == "arrange" then
+    if cmd == "sort" then
         RaidUtility:Arrange(rest ~= "" and rest or nil)
     elseif cmd == "invite" then
         RaidUtility:InviteMissing()

@@ -1,4 +1,4 @@
--- Preview.lua: the made-up raid behind /nru preview, and the dry-run Arrange/Invite it enables
+-- Preview.lua: the made-up raid behind /nru preview, and the dry-run sorting/inviting it enables
 local H = ...
 local utility, test = H.utility, H.test
 local Preview = utility.Preview
