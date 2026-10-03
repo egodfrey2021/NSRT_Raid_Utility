@@ -13,11 +13,19 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 - Group edits go to a draft (`Extras.draft`); **Save** commits, **Revert** discards, switching or
   creating rosters with unsaved edits asks to confirm.
 - **Arrange groups** sorts the real raid to match the draft; `/nsx arrange` uses the saved roster.
+- **Split Raid** tab (`/nsx split`): splits current raid members into two sides. Tanks, then healers,
+  then damage are distributed per role, each player to the side with the lower role total (odd one out
+  of a role goes to the smaller side). Values come from Blizzard's `C_DamageMeter` Overall session
+  (`amountPerSecond`; DamageDone for tanks/dps, HealingDone for healers). Names/values can be secret in
+  combat, so the split refuses in combat and skips secret values. Layouts: odd/even groups or consecutive
+  groups. Result goes to the Rosters draft or straight to Arrange.
 
 ## Files
 - `Roster.lua`: data model, draft, name resolution, invite, arrange.
 - `RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
-- `Core.lua`: injects the tab into NSRT's window, events, `/nsx` slash command.
+- `Split.lua`: damage meter reading, side balancing, side -> roster layout.
+- `SplitUI.lua`: Split Raid tab.
+- `Core.lua`: injects both tabs into NSRT's window, events, `/nsx` slash command.
 
 ## How it hooks into NSRT (no official plugin API exists)
 - NSRT exposes `_G.NorthernSkyRaidTools` (internal namespace, unstable) and `NSAPI` (public).

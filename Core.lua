@@ -1,6 +1,10 @@
--- Injects the Rosters tab into the NSRT options window + events and slash commands
+-- Injects the Rosters and Split Raid tabs into the NSRT options window + events and slash commands
 local ADDON, Extras = ...
-local TAB_NAME, TAB_LABEL = "NSRTExtras", "Rosters"
+local TABS = {
+    { name = "NSRTExtras",      label = "Rosters",    build = "BuildRosterTab" },
+    { name = "NSRTExtrasSplit", label = "Split Raid", build = "BuildSplitTab" },
+}
+Extras.ROSTER_TAB, Extras.SPLIT_TAB = TABS[1].name, TABS[2].name
 
 local injected, hooked = false, false
 
@@ -15,21 +19,26 @@ local function InjectTab()
     local lastBtn = menu.AllButtonsByName["Versions"]   -- last sidebar button
     if not (refTab and lastBtn) then return end
 
-    local frame = CreateFrame("Frame", "NSUI_TabFrame_" .. TAB_NAME, NSUI, "BackdropTemplate")
-    frame:SetPoint(refTab:GetPoint(1))
-    frame:SetSize(refTab:GetSize())
-    frame:Hide()
+    Extras.menu = menu
+    local anchor, gap = lastBtn.frame, -14     -- our buttons form their own block under "Versions"
+    for _, tab in ipairs(TABS) do
+        local frame = CreateFrame("Frame", "NSUI_TabFrame_" .. tab.name, NSUI, "BackdropTemplate")
+        frame:SetPoint(refTab:GetPoint(1))
+        frame:SetSize(refTab:GetSize())
+        frame:Hide()
 
-    local btn = NSI.UI.Components.CreateButton(lastBtn.frame:GetParent(), TAB_LABEL,
-        function() menu:SelectTabByName(TAB_NAME) end, 148, 22, "NSUITabBtn_" .. TAB_NAME)
-    btn:SetPoint("TOPLEFT", lastBtn.frame, "BOTTOMLEFT", 0, -14)
+        local btn = NSI.UI.Components.CreateButton(lastBtn.frame:GetParent(), tab.label,
+            function() menu:SelectTabByName(tab.name) end, 148, 22, "NSUITabBtn_" .. tab.name)
+        btn:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
+        anchor, gap = btn.frame, 0
 
-    menu.AllFramesByName[TAB_NAME]  = frame
-    menu.AllButtonsByName[TAB_NAME] = btn
-    table.insert(menu.AllFrames, frame)
-    table.insert(menu.AllButtons, btn)
+        menu.AllFramesByName[tab.name]  = frame
+        menu.AllButtonsByName[tab.name] = btn
+        table.insert(menu.AllFrames, frame)
+        table.insert(menu.AllButtons, btn)
 
-    Extras:BuildRosterTab(frame, NSI)
+        Extras[tab.build](Extras, frame, NSI)
+    end
     injected = true
 end
 
@@ -41,12 +50,12 @@ local function HookUI()
     if NSI.NSUI:IsShown() then InjectTab() end
 end
 
-local function OpenTab()
+local function OpenTab(name)
     local NSI = _G.NorthernSkyRaidTools
     if NSI and NSI:LoadUI(true) and NSI.NSUI then
         NSI.NSUI:Show()
         InjectTab()
-        if NSI.NSUI.MenuFrame then NSI.NSUI.MenuFrame:SelectTabByName(TAB_NAME) end
+        if NSI.NSUI.MenuFrame then NSI.NSUI.MenuFrame:SelectTabByName(name) end
     end
 end
 
@@ -65,6 +74,7 @@ f:SetScript("OnEvent", function(_, event, name)
 end)
 
 -- /nsx                 open the Rosters tab
+-- /nsx split           open the Split Raid tab
 -- /nsx arrange [name]  sort groups using the active (or named) roster
 -- /nsx invite          invite roster players not in the group
 SLASH_NSRTEXTRAS1 = "/nsx"
@@ -75,7 +85,9 @@ SlashCmdList.NSRTEXTRAS = function(msg)
         Extras:Arrange(rest ~= "" and rest or nil)
     elseif cmd == "invite" then
         Extras:InviteMissing()
+    elseif cmd == "split" then
+        OpenTab(Extras.SPLIT_TAB)
     else
-        OpenTab()
+        OpenTab(Extras.ROSTER_TAB)
     end
 end

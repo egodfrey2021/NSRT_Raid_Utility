@@ -106,6 +106,7 @@ end
 
 -- Unassigned = current raid/party members not placed in the roster being edited.
 local function Key(name) return (strsplit("-", Trim(name))):lower() end
+Extras.Key = Key
 
 function Extras:GetUnassigned(roster)
     local placed = {}

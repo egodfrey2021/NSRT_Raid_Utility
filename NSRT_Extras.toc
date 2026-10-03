@@ -10,4 +10,6 @@
 
 Roster.lua
 RosterUI.lua
+Split.lua
+SplitUI.lua
 Core.lua
