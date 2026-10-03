@@ -40,7 +40,7 @@ Split setup also has these options:
 
 For buffs, lust, and brez, the tool swaps players of the same role and position after balancing and reports anything it could not spread. Shift-right-click a player to pin them to side A, again for B, and again to unpin. Pins stay with the roster on Save; a split stops if more than 20 players are pinned to one side. The balance strip shows each side's roles and DPS/HPS as you edit.
 
-**Power Infusion** (or `/nru pi`) ranks DPS by expected PI gain and pairs priests with targets. It moves priests into their targets' groups on the draft when it can; Save to keep the moves. **PI priority** controls whether the ranking trusts spec sims, player DPS, or both. **Group priests with PI targets** runs the pairing during Generate split, with PI markers on the slots. Out of a raid, PI uses players on the draft with whatever the meter knows about them. The spec gains come from [Ulria's PI sims](https://docs.google.com/spreadsheets/d/1exJeu5eVe4bTmyg3WFx5PTxIWvDLi0j-WW-XWpGoG88), [bloodmallet](https://bloodmallet.com/chart/power_infusion), and [whoshouldgetpi](https://www.whoshouldgetpi.com/); see `PIData.lua` for the date.
+**Power Infusion** (or `/nru pi`) ranks DPS by expected PI gain and pairs priests with targets. It moves priests into their targets' groups on the draft when it can; Save to keep the moves. **PI priority** controls whether the ranking trusts spec sims, player DPS, or both. **Group priests with PI targets** runs the pairing during Generate split, with PI markers on the slots. Out of a raid, PI uses players on the draft with whatever the meter knows about them. The spec gains come from [Ulria's PI sims](https://docs.google.com/spreadsheets/d/1exJeu5eVe4bTmyg3WFx5PTxIWvDLi0j-WW-XWpGoG88), [bloodmallet](https://bloodmallet.com/chart/power_infusion), and [whoshouldgetpi](https://www.whoshouldgetpi.com/); see `src/split/PIData.lua` for the date.
 
 **Post to raid** sends the split sides and PI pairs to raid chat when you click it. Hover to preview the lines. In a preview raid it prints them instead of sending them.
 
@@ -115,7 +115,7 @@ restart. The version in the AddOn list shows `@project-version@` for a developme
 | `mise run check` | Everything CI runs: `fmt-check`, `lint`, `typecheck`, `test` |
 | `mise run fmt` | Format every Lua file with StyLua |
 | `mise run package` | Build the release folder with the BigWigs packager (no upload) and check what ships |
-| `mise run pi-data` | Regenerate `PIData.lua` (Power Infusion gain per spec) from the PI sims sheet, bloodmallet and whoshouldgetpi; needs `python3` and network. Rerun when the sims update, then commit the new file |
+| `mise run pi-data` | Regenerate `src/split/PIData.lua` (Power Infusion gain per spec) from the PI sims sheet, bloodmallet and whoshouldgetpi; needs `python3` and network. Rerun when the sims update, then commit the new file |
 | `mise run test` | Behavior tests under LuaJIT (`tests/`; the harness stubs the WoW API) |
 | `mise run lint` | luacheck, plus a check for non-ASCII characters |
 | `mise run typecheck` | lua-language-server, as the editor sees it |

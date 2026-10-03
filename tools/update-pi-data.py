@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Regenerates PIData.lua: the expected Power Infusion DPS gain per damage spec.
+"""Regenerates src/split/PIData.lua: the expected Power Infusion DPS gain per damage spec.
 
-Run from the repo root: mise run pi-data (or python3 tools/update-pi-data.py, then stylua PIData.lua).
+Run from the repo root: mise run pi-data (or python3 tools/update-pi-data.py, then stylua src/split/PIData.lua).
 Dev only: tools/ is not packaged.
 
 Sources, combined per spec:
@@ -30,7 +30,7 @@ BLOODMALLET = "https://bloodmallet.com/chart/get/power_infusion/castingpatchwerk
 WHOSHOULDGETPI = "https://www.whoshouldgetpi.com/"
 LOG_WEIGHT, LOG_CLIP, LOG_MIN_SAMPLES = 0.15, 0.5, 30
 MIN_SPECS, MAX_GAIN = 20, 15.0  # sanity checks: a source that changed shape must not ship wrong numbers
-OUT = "PIData.lua"
+OUT = "src/split/PIData.lua"
 
 # spec ID -> (display name, sheet row prefix, bloodmallet name, whoshouldgetpi "Spec Class")
 SPECS = {
@@ -69,7 +69,7 @@ def get(url):
 
 
 def fail(message):
-    print("error: " + message + "; PIData.lua was not changed", file=sys.stderr)
+    print("error: " + message + f"; {OUT} was not changed", file=sys.stderr)
     sys.exit(1)
 
 

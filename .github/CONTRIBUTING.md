@@ -30,8 +30,8 @@ round of review. For anything bigger than a fix, open an issue first and describ
    Blizzard APIs that always exist on 12.x. Feature checks are only for things that can genuinely be absent at
    runtime: NSRT internals and NSRT's load-on-demand UI addon.
 
-6. **NSRT goes through `NSRT.lua`.** NSRT has no plugin API and its internals change between releases. Every use of
-   `_G.NorthernSkyRaidTools` or `NSAPI` lives in `NSRT.lua` (tab injection in `Core.lua` is the one exception). Prefer
+6. **NSRT goes through `src/NSRT.lua`.** NSRT has no plugin API and its internals change between releases. Every use of
+   `_G.NorthernSkyRaidTools` or `NSAPI` lives in `src/NSRT.lua` (tab injection in `src/Core.lua` is the one exception). Prefer
    the public `NSAPI` and NSRT's own functions over reimplementing what NSRT already does.
 
 ## Code style

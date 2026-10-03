@@ -11,18 +11,18 @@
 ## SavedVariables: NSRTRaidUtilityDB
 ## X-Curse-Project-ID: 1722253
 
-Locales.lua
-NSRT.lua
-Widgets.lua
-Roster.lua
-Preview.lua
-Import.lua
-RosterUI.lua
-Split.lua
-SplitUI.lua
-PIData.lua
-PI.lua
-Core.lua
+src/Locales.lua
+src/NSRT.lua
+src/Widgets.lua
+src/roster/Roster.lua
+src/roster/Preview.lua
+src/roster/Import.lua
+src/roster/RosterUI.lua
+src/split/Split.lua
+src/split/SplitUI.lua
+src/split/PIData.lua
+src/split/PI.lua
+src/Core.lua
 
 #@do-not-package@
 tests/ingame.lua

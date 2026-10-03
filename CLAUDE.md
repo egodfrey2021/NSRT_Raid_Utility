@@ -120,7 +120,7 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   target's group (empty slot, else swap with someone who isn't a target or placed priest); targets never move.
   `/nru pi` prints the top 10 and the pairs and pairs the draft (unsaved edit). Split option `db.splitPI` pairs inside
   Generate split and shows `[PI]`/`[PI>]` tags (`PITags`, tooltip on the priest).
-- **PIData.lua is generated**: `mise run pi-data` (`tools/update-pi-data.py`, needs python3 + network): mean of Ulria's
+- **src/split/PIData.lua is generated**: `mise run pi-data` (`tools/update-pi-data.py`, needs python3 + network): mean of Ulria's
   sheet (tab "PI Sims - 5 mins patchwerk (on CDs)", 4-piece column, hero trees averaged) and bloodmallet's JSON
   (`chart/get/power_infusion/castingpatchwerk/...`, "X" vs "{X}" = with/without PI), plus a +-0.5 point nudge from
   whoshouldgetpi's per-boss log medians (embedded Next.js `allStats`; raw deltas are biased negative, so rank only).
@@ -129,22 +129,23 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   `/nru pi`, `/nru debug`; `/nsx` is an alias. The minimap addon drawer also opens Rosters.
 
 ## Files (load order = .toc order)
-- `Locales.lua`: `RaidUtility.L`; `L["English"]` returns the key until translations exist. All user-facing text
+The `.toc` stays at the addon root; runtime Lua lives in `src/` and its `roster/` and `split/` folders.
+- `src/Locales.lua`: `RaidUtility.L`; `L["English"]` returns the key until translations exist. All user-facing text
   uses it.
-- `NSRT.lua`: the only place that touches `_G.NorthernSkyRaidTools` internals or `NSAPI`. Every call into NSRT
+- `src/NSRT.lua`: the only place that touches `_G.NorthernSkyRaidTools` internals or `NSAPI`. Every call into NSRT
   goes through its local `Call` (pcall; failure printed in chat, error text to `/nru debug`; `once` for calls made on
   every redraw: nickname lookup, spec cache). StartSort/InviteList/Restricted report and fall back (no sort,
   one-by-one invites, refuse sorting). RosterUI gets NSRT's widget library (`C`) from Core, never NSRT itself. Looks NSRT up on every
   call because NSRT's UI addon is load-on-demand. When NSRT changes, this (plus Core's tab injection) is what breaks.
-- `Widgets.lua`: shared `WHITE` texture, `ROLE_ICON`, `TopButton`, `Tooltip`.
-- `Roster.lua`: data model + `db.version` migrations, draft, member list/name resolution, invite, arrange.
-- `Preview.lua`: `/nru preview`, a fixture raid (you + up to 39 made-up players with the edge cases built in).
-- `Import.lua`: invite-list text -> roster, and the damage meter import.
-- `RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
-- `Split.lua`: damage meter reading (`ReadMeter`), roles, side balancing, side -> roster layout, draft side totals.
-- `SplitUI.lua`: Generate split, its naming popup, and the balance strip (built by `BuildRosterTab`).
-- `PIData.lua` (generated, see above) and `PI.lua`: Power Infusion priority, assignment, pairing, `/nru pi`.
-- `Core.lua`: injects the Rosters tab into NSRT's window, events, `/nru` slash command (`/nsx` kept as an alias),
+- `src/Widgets.lua`: shared `WHITE` texture, `ROLE_ICON`, `TopButton`, `Tooltip`.
+- `src/roster/Roster.lua`: data model + `db.version` migrations, draft, member list/name resolution, invite, arrange.
+- `src/roster/Preview.lua`: `/nru preview`, a fixture raid (you + up to 39 made-up players with the edge cases built in).
+- `src/roster/Import.lua`: invite-list text -> roster, and the damage meter import.
+- `src/roster/RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
+- `src/split/Split.lua`: damage meter reading (`ReadMeter`), roles, side balancing, side -> roster layout, draft side totals.
+- `src/split/SplitUI.lua`: Generate split, its naming popup, and the balance strip (built by `BuildRosterTab`).
+- `src/split/PIData.lua` (generated, see above) and `src/split/PI.lua`: Power Infusion priority, assignment, pairing, `/nru pi`.
+- `src/Core.lua`: injects the Rosters tab into NSRT's window, events, `/nru` slash command (`/nsx` kept as an alias),
   addon compartment click.
 
 Not loaded by WoW: `types/globals.lua` (`---@meta` declarations for the type checker), `tests/` (LuaJIT suites),

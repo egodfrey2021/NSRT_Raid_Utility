@@ -56,8 +56,8 @@ description = "Format check, lint, type-check and test"
 depends = ["fmt-check", "lint", "typecheck", "test"]
 
 [tasks.pi-data]
-description = "Regenerate PIData.lua (Power Infusion gains) from the sims and logs; needs python3 and network"
-run = ["python3 tools/update-pi-data.py", "stylua PIData.lua"]
+description = "Regenerate src/split/PIData.lua (Power Infusion gains) from the sims and logs; needs python3 and network"
+run = ["python3 tools/update-pi-data.py", "stylua src/split/PIData.lua"]
 
 [tasks.package]
 description = "Build the release folder without uploading and check its contents"
