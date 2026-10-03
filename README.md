@@ -16,7 +16,7 @@ Requires [Northern Sky Raid Tools](https://www.curseforge.com/wow/addons/norther
 - **Arrange groups** moves everyone into place using NSRT's own group sorter
 - **Invite missing** invites roster players who aren't in the group
 - Works with NSRT nicknames
-- **Split Raid** tab: divide the raid into two balanced sides, as odd/even groups (1/3/5/7 vs 2/4/6/8) or consecutive groups (e.g. 1-2 vs 3-4). Tanks and healers are spread evenly, then players are balanced using the built-in damage meter's Overall session (DPS, and HPS for healers). Click a player to swap sides, then send the result to the Rosters tab or arrange the raid right away.
+- **Split Raid** tab: divide the raid into two balanced sides, as odd/even groups (1/3/5/7 vs 2/4/6/8) or top / bottom groups (e.g. 1-2 vs 3-4). Tanks and healers are spread evenly, then players are balanced using the built-in damage meter's Overall session (DPS, and HPS for healers). Click a player to swap sides, then send the result to the Rosters tab or arrange the raid right away.
 
 ## Slash commands
 
