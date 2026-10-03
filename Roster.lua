@@ -1,36 +1,98 @@
 -- Roster data, working draft, and group arranging (uses NSRT's own ArrangeGroups engine)
 local _, RaidUtility = ...
+local L, NSRT = RaidUtility.L, RaidUtility.NSRT
 local PREFIX = "|cFF00FFFFNSRT Raid Utility:|r "
+local DB_VERSION = 2
 
-local function Print(msg) print(PREFIX .. msg) end
+-- Also shown in the Rosters tab (OnMessage), so results don't get lost in a busy chat
+local function Print(msg)
+    print(PREFIX .. msg)
+    if RaidUtility.OnMessage then RaidUtility.OnMessage(msg) end
+end
 RaidUtility.Print = Print
+
+-- /nru debug toggles this
+function RaidUtility.Debug(msg)
+    if RaidUtility.debug then print(PREFIX .. "|cFF888888" .. msg .. "|r") end
+end
 
 local function Trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 RaidUtility.Trim = Trim
 
+-- False for secret values (names and numbers can be hidden from addons in combat)
+local function Readable(v)
+    if v == nil then return false end
+    if canaccessvalue then return canaccessvalue(v) end
+    return not (issecretvalue and issecretvalue(v))
+end
+RaidUtility.Readable = Readable
+
+---@alias Roster string[][] 8 groups x 5 slots of names ("" = empty)
+
 -- A roster is 8 groups x 5 slots.
 function RaidUtility.NewRoster()
     local r = {}
-    for g = 1, 8 do r[g] = { "", "", "", "", "" } end
+    for g = 1, 8 do
+        r[g] = { "", "", "", "", "" }
+    end
     return r
 end
 
 function RaidUtility.CopyRoster(src)
     local r = RaidUtility.NewRoster()
     if src then
-        for g = 1, 8 do for s = 1, 5 do r[g][s] = (src[g] and src[g][s]) or "" end end
+        for g = 1, 8 do
+            for s = 1, 5 do
+                r[g][s] = (src[g] and src[g][s]) or ""
+            end
+        end
     end
     return r
 end
 
+-- fn(g, s, entry) for every non-empty slot, entry trimmed
+function RaidUtility.ForEachEntry(roster, fn)
+    for g = 1, 8 do
+        for s = 1, 5 do
+            local entry = Trim(roster[g][s])
+            if entry ~= "" then fn(g, s, entry) end
+        end
+    end
+end
+
+local function ReportAmbiguous(list)
+    if #list > 0 then Print(L["Use Name-Realm for ambiguous entries: "] .. table.concat(list, ", ")) end
+end
+
+-- Upgrade steps for older saved data go here, in order: if db.version < 2 then ... db.version = 2 end
+local function Migrate(db)
+    db.version = db.version or 1 -- data from before versioning already has the v1 layout
+    if db.version < 2 then
+        -- splitBuffs was on/off; it is now a mode: "off", "even", or "max" (Chaos Brand/Mystic Touch for most damage)
+        if type(db.splitBuffs) == "boolean" then db.splitBuffs = db.splitBuffs and "even" or "off" end
+        db.version = 2
+    end
+end
+
 function RaidUtility:InitDB()
-    NSRTRaidUtilityDB = NSRTRaidUtilityDB or {}
+    NSRTRaidUtilityDB = NSRTRaidUtilityDB or { version = DB_VERSION }
     local db = NSRTRaidUtilityDB
+    Migrate(db)
     db.rosters = db.rosters or {}
     if not next(db.rosters) then db.rosters["Default"] = self.NewRoster() end
-    db.pool = nil                               -- old shared player pool; Unassigned is now just the live group
-    for _, roster in pairs(db.rosters) do roster.bench = nil end
     if not (db.active and db.rosters[db.active]) then db.active = next(db.rosters) end
+    -- "Generate split" target: a new roster (default) or the open draft
+    if db.splitToNewRoster == nil then db.splitToNewRoster = true end
+    -- "Even melee/ranged": optional extra rule for Generate split
+    if db.splitMeleeRanged == nil then db.splitMeleeRanged = false end
+    if db.splitLustRez == nil then db.splitLustRez = false end
+    if not (db.splitBuffs == "even" or db.splitBuffs == "max") then db.splitBuffs = "off" end
+    -- what the split balances on: "overall" session, "lastfight", or "roles" only
+    if not (db.splitMeterSource == "lastfight" or db.splitMeterSource == "roles") then
+        db.splitMeterSource = "overall"
+    end
+    -- players pinned to a side for Generate split, per roster (the draft has its own copy until Save)
+    db.pins = db.pins or {}
     self.db = db
     self:LoadDraft()
 end
@@ -39,7 +101,9 @@ function RaidUtility:GetActive() return self.db.rosters[self.db.active], self.db
 
 function RaidUtility:GetRosterNames()
     local names = {}
-    for name in pairs(self.db.rosters) do names[#names + 1] = name end
+    for name in pairs(self.db.rosters) do
+        names[#names + 1] = name
+    end
     table.sort(names)
     return names
 end
@@ -47,24 +111,40 @@ end
 -- ------------------------------------------------------------
 -- Draft: all UI edits happen here until Save is pressed
 -- ------------------------------------------------------------
+-- Pins: player -> side (1 or 2) for Generate split. Part of the draft like the groups. Keyed by PinKey.
+local function CopyPins(pins)
+    local copy = {}
+    for key, side in pairs(pins or {}) do
+        copy[key] = side
+    end
+    return copy
+end
+
 function RaidUtility:LoadDraft()
     self.draft = self.CopyRoster(self:GetActive())
+    self.draftPins = CopyPins(self.db.pins[self.db.active])
     self.dirty = false
 end
 
 function RaidUtility:SaveDraft()
     self.db.rosters[self.db.active] = self.CopyRoster(self.draft)
+    self.db.pins[self.db.active] = next(self.draftPins) and CopyPins(self.draftPins) or nil
     self.dirty = false
-    Print("Saved roster '" .. self.db.active .. "'.")
+    Print(L["Saved roster '%s'."]:format(self.db.active))
 end
 
 function RaidUtility:MarkDirty() self.dirty = true end
 
-function RaidUtility:CreateRoster(name)
+-- data, pins: optional roster and pins to start from (copied)
+function RaidUtility:CreateRoster(name, data, pins)
     name = Trim(name)
     if name == "" then return end
-    if self.db.rosters[name] then Print("Roster '" .. name .. "' already exists.") return end
-    self.db.rosters[name] = self.NewRoster()
+    if self.db.rosters[name] then
+        Print(L["Roster '%s' already exists."]:format(name))
+        return
+    end
+    self.db.rosters[name] = self.CopyRoster(data)
+    self.db.pins[name] = pins and next(pins) and CopyPins(pins) or nil
     self.db.active = name
     self:LoadDraft()
     return true
@@ -72,59 +152,207 @@ end
 
 function RaidUtility:DeleteRoster(name)
     self.db.rosters[name] = nil
-    if not next(self.db.rosters) then self.db.rosters["Default"] = self.NewRoster() end
+    self.db.pins[name] = nil
+    if not next(self.db.rosters) then
+        self.db.rosters["Default"] = self.NewRoster()
+        Print(L['That was the last roster, so an empty "Default" roster was created.'])
+    end
     if self.db.active == name then self.db.active = self:GetRosterNames()[1] end
     self:LoadDraft()
 end
 
--- Resolve a roster entry (character, Name-Realm, or NSRT nickname) to a raid index
-function RaidUtility:ResolveRaidIndex(entry)
-    entry = Trim(entry)
-    if entry == "" or not IsInRaid() then return end
-    local base = strsplit("-", entry)
-    local char = (NSAPI and NSAPI.GetChar and NSAPI:GetChar(base, true, "GlobalNickNames")) or base
-    local idx = char and UnitInRaid(char)
-    if not idx then idx = UnitInRaid(entry) end
-    if idx then return idx, char end
+-- ------------------------------------------------------------
+-- Group members and name resolution
+-- ------------------------------------------------------------
+---@class GroupMember
+---@field unit string        "raid3" / "party1" / "player"
+---@field index number?      raid index (nil in a party)
+---@field name string        name as Blizzard displays it (no realm for your own realm)
+---@field fullName string    Name-Realm
+---@field guid string?
+---@field shortKey string    lowercased name
+---@field realmKey string    lowercased realm
+---@field key string         lowercased Name-Realm, unique per member
+---@field class string?      class file, e.g. "MAGE"
+---@field role string?       assigned role: "TANK", "HEALER", "DAMAGER" or "NONE"
+---@field subgroup number    raid group (1 in a party)
+
+-- The live group, or the preview raid while it's on. Everything that asks "who is in the group" goes through
+-- these, so the preview exercises the same code as a real raid.
+function RaidUtility.InRaid() return RaidUtility.Preview.IsActive() or IsInRaid() end
+function RaidUtility.InGroup() return RaidUtility.Preview.IsActive() or IsInGroup() end
+
+-- A member from a character's name and realm; fields adds unit, index, name (as displayed) and the rest
+function RaidUtility.NewMember(name, realm, fields)
+    local fullName = name .. "-" .. realm
+    local member = { shortKey = name:lower(), realmKey = realm:lower(), fullName = fullName, key = fullName:lower() }
+    for k, v in pairs(fields) do
+        member[k] = v
+    end
+    return member
 end
 
--- Names of everyone currently in your raid or party (including you)
-local function CurrentGroupNames()
-    local names = {}
+local function AddToList(members, member)
+    members[#members + 1] = member
+    local same = members.byShort[member.shortKey]
+    if same then
+        same[#same + 1] = member
+    else
+        members.byShort[member.shortKey] = { member }
+    end
+end
+
+-- Current raid/party. The list also carries byShort (shortKey -> members) and a resolve cache, so build it
+-- once per refresh and pass it around. Members whose names are secret right now are left out.
+function RaidUtility.GetGroupMembers()
+    local members = { byShort = {}, resolved = {} }
+    if RaidUtility.Preview.IsActive() then
+        for _, member in ipairs(RaidUtility.Preview.Members()) do
+            AddToList(members, member)
+        end
+        return members
+    end
+    local function AddMember(unit, index, displayName, subgroup)
+        if not Readable(displayName) then return end
+        local unitName, unitRealm = UnitFullName(unit)
+        local name = Readable(unitName) and unitName or strsplit("-", displayName)
+        if not name then return end
+        local realm = Readable(unitRealm) and unitRealm ~= "" and unitRealm
+            or select(2, strsplit("-", displayName))
+            or GetNormalizedRealmName()
+        local guid = UnitGUID(unit)
+        local _, class = UnitClass(unit)
+        local role = UnitGroupRolesAssigned(unit)
+        AddToList(
+            members,
+            RaidUtility.NewMember(name, realm, {
+                unit = unit,
+                index = index,
+                name = displayName,
+                subgroup = subgroup,
+                guid = Readable(guid) and guid or nil,
+                class = Readable(class) and class or nil,
+                role = Readable(role) and role or nil, -- the tab can refresh in combat, and roles key tables
+            })
+        )
+    end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            local name = GetRaidRosterInfo(i)
-            if name then names[#names + 1] = name end
+            local name, _, subgroup = GetRaidRosterInfo(i)
+            if name then AddMember("raid" .. i, i, name, subgroup) end
         end
-    elseif IsInGroup() then
-        for _, unit in ipairs({ "player", "party1", "party2", "party3", "party4" }) do
-            if UnitExists(unit) then names[#names + 1] = GetUnitName(unit, true) end
+    else
+        -- solo, the group is just you (as WoW's own frames show it), so your roster entry resolves like anyone's
+        local units = IsInGroup() and { "player", "party1", "party2", "party3", "party4" } or { "player" }
+        for _, unit in ipairs(units) do
+            if UnitExists(unit) then
+                local name = GetUnitName(unit, true)
+                if name then AddMember(unit, nil, name, 1) end
+            end
         end
     end
-    return names
+    return members
+end
+
+-- Your role from your current spec, or nil. Your own spec is always known, unlike other players'.
+function RaidUtility.PlayerSpecRole()
+    local spec = GetSpecialization and GetSpecialization()
+    local role = spec and GetSpecializationRole(spec)
+    if role == "TANK" or role == "HEALER" or role == "DAMAGER" then return role end
+end
+
+-- Your current spec ID, or nil
+function RaidUtility.PlayerSpecID()
+    local spec = GetSpecialization and GetSpecialization()
+    local specID = spec and GetSpecializationInfo(spec)
+    if type(specID) == "number" and specID > 0 then return specID end
+end
+
+local function FindMember(entry, members)
+    local name, realm = strsplit("-", entry)
+    if not name or name == "" then return end
+    local same = members.byShort[name:lower()]
+    if not same then return end
+    realm = realm and realm:lower()
+    local found
+    for _, member in ipairs(same) do
+        if not realm or member.realmKey == realm then
+            if found then return nil, "ambiguous" end
+            found = member
+        end
+    end
+    return found
+end
+
+local function Resolve(entry, members, resolveNickname)
+    local member, reason = FindMember(entry, members)
+    if member or reason or not resolveNickname or entry:find("-", 1, true) then return member, reason end
+    local char, realm = NSRT.GetChar(entry)
+    if char then
+        if realm and not char:find("-", 1, true) then char = char .. "-" .. realm end
+        return FindMember(char, members)
+    end
+end
+
+-- An unqualified name must match exactly one member; nicknames use NSRT's public API.
+-- Returns member, or nil plus "ambiguous" when a short name matches several members.
+function RaidUtility:ResolveGroupMember(entry, members, resolveNickname)
+    entry = Trim(entry)
+    if entry == "" then return end
+    members = members or self.GetGroupMembers()
+    resolveNickname = resolveNickname ~= false
+    local cacheKey = (resolveNickname and "n:" or "p:") .. entry
+    local hit = members.resolved[cacheKey]
+    if not hit then
+        hit = { Resolve(entry, members, resolveNickname) }
+        members.resolved[cacheKey] = hit
+    end
+    return hit[1], hit[2]
+end
+
+-- The key a pin is stored under: the member's Name-Realm key when the entry resolves (so "Kaelin", "Kaelin-Draenor"
+-- and a nickname all pin the same player), else the lowercased entry (a typed name of someone not in the group)
+function RaidUtility:PinKey(entry, members)
+    entry = Trim(entry)
+    if entry == "" then return end
+    local member = self:ResolveGroupMember(entry, members)
+    return member and member.key or entry:lower()
+end
+
+-- The side a roster entry is pinned to, or nil
+function RaidUtility:PinOf(entry, members)
+    local key = self:PinKey(entry, members)
+    return key and self.draftPins[key]
+end
+
+-- Pins by member key for the current group: stored keys of typed names are resolved again, in case that player has
+-- joined since
+function RaidUtility:MemberPins(members)
+    local out = {}
+    for key, side in pairs(self.draftPins) do
+        local member = self:ResolveGroupMember(key, members)
+        out[member and member.key or key] = side
+    end
+    return out
+end
+
+-- The name to put in a roster for this member: as displayed, unless another member shares the short name, in which
+-- case Name-Realm (a bare "Twin" would be ambiguous and never resolve)
+function RaidUtility.EntryName(member, members)
+    return #members.byShort[member.shortKey] > 1 and member.fullName or member.name
 end
 
 -- Unassigned = current raid/party members not placed in the roster being edited.
-local function Key(name) return (strsplit("-", Trim(name))):lower() end
-RaidUtility.Key = Key
-
-function RaidUtility:GetUnassigned(roster)
+function RaidUtility:GetUnassigned(roster, members)
+    members = members or self.GetGroupMembers()
     local placed = {}
-    for g = 1, 8 do for s = 1, 5 do
-        local v = Trim(roster[g][s])
-        if v ~= "" then
-            placed[Key(v)] = true
-            local _, char = self:ResolveRaidIndex(v)    -- nickname entries hide the real character too
-            if char then placed[Key(char)] = true end
-        end
-    end end
-    local list, seen = {}, {}
-    for _, name in ipairs(CurrentGroupNames()) do
-        local key = Key(name)
-        if key ~= "" and not placed[key] and not seen[key] then
-            seen[key] = true
-            list[#list + 1] = name
-        end
+    self.ForEachEntry(roster, function(_, _, entry)
+        local member = self:ResolveGroupMember(entry, members)
+        if member then placed[member.key] = true end
+    end)
+    local list = {}
+    for _, member in ipairs(members) do
+        if not placed[member.key] then list[#list + 1] = self.EntryName(member, members) end
     end
     table.sort(list, function(x, y) return x:lower() < y:lower() end)
     return list
@@ -132,88 +360,167 @@ end
 
 -- Copy the group's current layout (raid subgroups, or the party as group 1) into roster
 function RaidUtility:FillFromRaid(roster)
-    if not IsInGroup() then Print("You are not in a group.") return end
-    for g = 1, 8 do for s = 1, 5 do roster[g][s] = "" end end
-    if IsInRaid() then
-        local count = {}
-        for i = 1, GetNumGroupMembers() do
-            local name, _, subgroup = GetRaidRosterInfo(i)
-            if name and subgroup then
-                count[subgroup] = (count[subgroup] or 0) + 1
-                if count[subgroup] <= 5 then roster[subgroup][count[subgroup]] = name end
-            end
+    if not self.InGroup() then
+        Print(L["You are not in a group."])
+        return
+    end
+    for g = 1, 8 do
+        for s = 1, 5 do
+            roster[g][s] = ""
         end
-    else
-        for s, name in ipairs(CurrentGroupNames()) do roster[1][s] = name end
+    end
+    local count, members = {}, self.GetGroupMembers()
+    for _, member in ipairs(members) do
+        local g = member.subgroup
+        count[g] = (count[g] or 0) + 1
+        if count[g] <= 5 then roster[g][count[g]] = self.EntryName(member, members) end
     end
     return true
 end
 
 function RaidUtility:InviteMissing(roster)
-    local NSI = _G.NorthernSkyRaidTools
     roster = roster or self:GetActive()
-    local list = {}
-    for g = 1, 8 do for s = 1, 5 do
-        local entry = Trim(roster[g][s])
-        if entry ~= "" and not self:ResolveRaidIndex(entry) then list[#list + 1] = entry end
-    end end
-    if #list == 0 then Print("Everyone on the roster is already in the group.") return end
-    if NSI and NSI.InviteList then NSI:InviteList(list) else
-        for _, n in ipairs(list) do C_PartyInfo.InviteUnit(n) end
+    local members, list, ambiguous = self.GetGroupMembers(), {}, {}
+    self.ForEachEntry(roster, function(_, _, entry)
+        local member, reason = self:ResolveGroupMember(entry, members)
+        if reason == "ambiguous" then
+            ambiguous[#ambiguous + 1] = entry
+        elseif not member then
+            list[#list + 1] = entry
+        end
+    end)
+    ReportAmbiguous(ambiguous)
+    if #list == 0 then
+        if #ambiguous == 0 then Print(L["Everyone on the roster is already in the group."]) end
+        return
     end
-    Print("Invited " .. #list .. " player(s).")
+    if self.Preview.IsActive() then
+        Print(L["Preview: would invite %s. Nothing was sent."]:format(table.concat(list, ", ")))
+        return
+    end
+    if not NSRT.InviteList(list) then
+        for _, n in ipairs(list) do
+            C_PartyInfo.InviteUnit(n)
+        end
+    end
+    Print(L["Sent invites to %d player(s)."]:format(#list))
+end
+
+-- ------------------------------------------------------------
+-- Arranging
+-- ------------------------------------------------------------
+local ARRANGE_COOLDOWN = 5
+local ARRANGE_TIMEOUT = 30 -- seconds; NSRT itself gives up after 25, but only notices on a roster update
+
+-- Report how NSRT's sort ended, once it has. NSRT prints its own reason when it stops early.
+local function CheckArrange()
+    local watch = RaidUtility.arrangeWatch
+    if not watch then return end
+    local state = NSRT.SortState()
+    if state == "running" and not watch.expired then return end
+    watch.timeout:Cancel()
+    RaidUtility.arrangeWatch = nil
+    Print(state == "done" and L["Groups arranged."] or L["Group sorting stopped before it finished."])
+end
+
+-- NSRT moves the next player on each GROUP_ROSTER_UPDATE; look one frame later, after its handler has run
+function RaidUtility:OnRosterUpdate()
+    if self.arrangeWatch then C_Timer.After(0, CheckArrange) end
+end
+
+local function WatchArrange()
+    if RaidUtility.arrangeWatch then RaidUtility.arrangeWatch.timeout:Cancel() end
+    local watch = {}
+    watch.timeout = C_Timer.NewTimer(ARRANGE_TIMEOUT, function()
+        watch.expired = true
+        CheckArrange()
+    end)
+    RaidUtility.arrangeWatch = watch
+    CheckArrange() -- NSRT can stop on its very first step (players in combat)
 end
 
 -- roster: a roster table (e.g. the UI draft). rosterName: a saved roster. Neither = active saved roster.
-function RaidUtility:Arrange(rosterName, roster)
-    local NSI = _G.NorthernSkyRaidTools
-    if not (NSI and NSI.ArrangeGroups) then Print("NSRT group sorting is not available.") return end
-    if not IsInRaid() then Print("You are not in a raid.") return end
+-- The checks that only matter when players really move
+local function CanArrangeLive(self, now)
+    if not NSRT.CanSort() then
+        Print(L["NSRT group sorting is not available."])
+        return
+    end
+    if not IsInRaid() then
+        Print(L["You are not in a raid."])
+        return
+    end
     if not (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")) then
-        Print("You need to be raid leader or assistant to move players.") return
+        Print(L["You need to be raid leader or assistant to move players."])
+        return
     end
-    if NSI.Restricted and NSI:Restricted() then Print("Can't sort groups right now (combat restrictions).") return end
-    local now = GetTime()
-    if NSI.Groups and NSI.Groups.Processing and NSI.Groups.ProcessStart and now < NSI.Groups.ProcessStart + 25 then
-        Print("A group sort is already running, please wait.") return
+    if NSRT.Restricted() then
+        Print(L["Can't sort groups while encounter restrictions are active."])
+        return
     end
-    if self.lastArrange and now - self.lastArrange < 5 then Print("Please wait a few seconds between sorts.") return end
+    if NSRT.IsSorting() then
+        Print(L["A group sort is already running, please wait."])
+        return
+    end
+    if self.lastArrange and now - self.lastArrange < ARRANGE_COOLDOWN then
+        Print(L["Please wait a few seconds between sorts."])
+        return
+    end
+    return true
+end
+
+function RaidUtility:Arrange(rosterName, roster)
+    local preview, now = self.Preview.IsActive(), GetTime()
+    if not preview and not CanArrangeLive(self, now) then return end
 
     roster = roster or (rosterName and self.db.rosters[rosterName]) or (not rosterName and self:GetActive())
-    if not roster then Print("Roster '" .. tostring(rosterName) .. "' not found.") return end
-    self.lastArrange = now
-
-    -- Build NSRT's 40-slot layout. Present players are packed to the top of each group
-    -- and the rest is padded with "already done" placeholders, which keeps NSRT's engine
-    -- on its well-tested code paths.
-    local units, seen, missing = {}, {}, {}
-    for g = 1, 8 do
-        local slot = 0
-        for s = 1, 5 do
-            local entry = Trim(roster[g][s])
-            if entry ~= "" then
-                local idx, char = self:ResolveRaidIndex(entry)
-                if idx and not seen[idx] then
-                    seen[idx] = true
-                    slot = slot + 1
-                    local pos, unit = (g - 1) * 5 + slot, "raid" .. idx
-                    units[pos] = { sort = pos, name = char or UnitName(unit), unitid = unit,
-                                   role = UnitGroupRolesAssigned(unit) }
-                elseif not idx then
-                    missing[#missing + 1] = entry
-                end
-            end
-        end
-        for s = slot + 1, 5 do
-            local pos = (g - 1) * 5 + s
-            units[pos] = { sort = pos, processed = true }
-        end
+    if not roster then
+        Print(L["Roster '%s' not found."]:format(tostring(rosterName)))
+        return
     end
 
-    if not next(seen) then Print("Nobody on this roster is in the raid.") return end
-    if #missing > 0 then Print("Not in raid (slots left open): " .. table.concat(missing, ", ")) end
+    -- Build NSRT's 40-slot layout. Present players are packed to the top of each group and the rest is
+    -- padded with "already done" placeholders: NSRT's ArrangeGroups references an undefined
+    -- `indextosubgroup` when a group has a gap of 2+ slots before the target slot, and packing avoids it.
+    local units, seen, missing, ambiguous, placements = {}, {}, {}, {}, {}
+    local members = self.GetGroupMembers()
+    local slots = {}
+    self.ForEachEntry(roster, function(g, _, entry)
+        local member, reason = self:ResolveGroupMember(entry, members)
+        local idx = member and member.index
+        if member and idx and not seen[idx] then
+            seen[idx] = true
+            slots[g] = (slots[g] or 0) + 1
+            local pos, unit = (g - 1) * 5 + slots[g], "raid" .. idx
+            -- NSRT finds players with UnitInRaid(name): short name on your realm, Name-Realm otherwise
+            local target = { sort = pos, name = Ambiguate(member.fullName, "none"), unitid = unit, role = member.role }
+            units[pos] = target
+            placements[#placements + 1] = { member = member, group = g }
+            self.Debug(("slot %d: %s -> %s"):format(pos, entry, target.name))
+        elseif reason == "ambiguous" then
+            ambiguous[#ambiguous + 1] = entry
+        elseif not idx then
+            missing[#missing + 1] = entry
+        end
+    end)
+    for pos = 1, 40 do
+        units[pos] = units[pos] or { sort = pos, processed = true }
+    end
 
-    NSI.Groups = { Processing = false, units = units, total = 40 }
-    NSI:ArrangeGroups(true)   -- NSRT continues the sort on each GROUP_ROSTER_UPDATE
-    Print("Sorting groups...")
+    ReportAmbiguous(ambiguous)
+    if not next(seen) then
+        Print(L["Nobody on this roster is in the raid."])
+        return
+    end
+    if #missing > 0 then Print(L["Not in raid (slots left open): "] .. table.concat(missing, ", ")) end
+
+    if preview then
+        local moved = self.Preview.Apply(placements)
+        Print(L["Preview: %d player(s) would move. Nothing was sent to the game."]:format(moved))
+        return
+    end
+    self.lastArrange = now
+    NSRT.StartSort(units)
+    Print(L["Sorting groups..."])
+    WatchArrange()
 end

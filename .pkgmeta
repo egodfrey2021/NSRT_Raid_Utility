@@ -3,4 +3,8 @@ package-as: NSRT_Raid_Utility
 ignore:
   - README.md
   - CLAUDE.md
-  - media
+  - tests
+  - mise.toml
+  - stylua.toml
+  - tools
+  - types

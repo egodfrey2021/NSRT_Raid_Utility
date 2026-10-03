@@ -3,13 +3,25 @@
 ## Notes: Saved raid rosters, group sorting and balanced raid splits, inside the Northern Sky Raid Tools window
 ## Author: Evan
 ## Version: @project-version@
+## Category: Dungeons & Raids
+## IconTexture: Interface\AddOns\NSRT_Raid_Utility\media\roster-icon.png
+## AddonCompartmentFunc: NSRTRaidUtility_OnAddonCompartmentClick
 ## Dependencies: NorthernSkyRaidTools
-## OptionalDeps: NorthernSkyRaidTools_UI
+## OptionalDeps: NorthernSkyRaidTools_UI, WoWUnit
 ## SavedVariables: NSRTRaidUtilityDB
 ## X-Curse-Project-ID: 1722253
 
+Locales.lua
+NSRT.lua
+Widgets.lua
 Roster.lua
+Preview.lua
+Import.lua
 RosterUI.lua
 Split.lua
 SplitUI.lua
 Core.lua
+
+#@do-not-package@
+tests/ingame.lua
+#@end-do-not-package@
