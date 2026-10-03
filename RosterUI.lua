@@ -1,15 +1,15 @@
 -- Rosters tab: drag-and-drop group grid + "In raid" list, with explicit Save/Revert
-local _, Extras = ...
+local _, RaidUtility = ...
 
 -- ------------------------------------------------------------
 -- Popups
 -- ------------------------------------------------------------
 local function AcceptNewRoster(dialog)
     local box = dialog.EditBox or dialog.editBox
-    if box and Extras:CreateRoster(box:GetText()) then Extras:RefreshUI() end
+    if box and RaidUtility:CreateRoster(box:GetText()) then RaidUtility:RefreshUI() end
 end
 
-StaticPopupDialogs["NSRTEXTRAS_NEW_ROSTER"] = {
+StaticPopupDialogs["NSRTRAIDUTILITY_NEW_ROSTER"] = {
     text = "Name for the new roster:",
     button1 = ACCEPT, button2 = CANCEL,
     hasEditBox = true, maxLetters = 40,
@@ -27,23 +27,23 @@ StaticPopupDialogs["NSRTEXTRAS_NEW_ROSTER"] = {
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
-StaticPopupDialogs["NSRTEXTRAS_DELETE_ROSTER"] = {
+StaticPopupDialogs["NSRTRAIDUTILITY_DELETE_ROSTER"] = {
     text = "Delete roster \"%s\"?",
     button1 = YES, button2 = NO,
-    OnAccept = function(_, data) Extras:DeleteRoster(data); Extras:RefreshUI() end,
+    OnAccept = function(_, data) RaidUtility:DeleteRoster(data); RaidUtility:RefreshUI() end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
-StaticPopupDialogs["NSRTEXTRAS_DISCARD"] = {
+StaticPopupDialogs["NSRTRAIDUTILITY_DISCARD"] = {
     text = "Discard unsaved changes to \"%s\"?",
     button1 = YES, button2 = NO,
     OnAccept = function(_, data) if data then data() end end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
-function Extras:ConfirmDiscard(fn)
+function RaidUtility:ConfirmDiscard(fn)
     if not self.dirty then fn() return end
-    StaticPopup_Show("NSRTEXTRAS_DISCARD", self.db.active, nil, fn)
+    StaticPopup_Show("NSRTRAIDUTILITY_DISCARD", self.db.active, nil, fn)
 end
 
 -- ------------------------------------------------------------
@@ -63,7 +63,7 @@ local WHITE = "Interface\\Buttons\\WHITE8x8"
 local function EntryColor(entry)
     if entry == "" then return 0.4, 0.4, 0.4 end
     if not IsInRaid() then return 1, 1, 1 end
-    local idx = Extras:ResolveRaidIndex(entry)
+    local idx = RaidUtility:ResolveRaidIndex(entry)
     if not idx then return 0.55, 0.55, 0.55 end        -- on roster, not in raid
     local _, classFile = UnitClass("raid" .. idx)
     local c = classFile and RAID_CLASS_COLORS[classFile]
@@ -96,7 +96,7 @@ local function GetGhost()
 end
 
 local function FindDropTarget()
-    local ui = Extras.ui
+    local ui = RaidUtility.ui
     for _, slot in ipairs(ui.groupSlots) do
         if slot:IsVisible() and slot:IsMouseOver() then return slot end
     end
@@ -105,7 +105,7 @@ end
 
 local function Drop(src, tgt, value)
     if not (src and tgt) or src == tgt then return end
-    local d = Extras.draft
+    local d = RaidUtility.draft
     if src.kind == "group" and tgt.kind == "group" then
         d[src.g][src.s], d[tgt.g][tgt.s] = d[tgt.g][tgt.s], d[src.g][src.s]   -- move or swap
     elseif src.kind == "bench" and tgt.kind == "group" then
@@ -115,13 +115,13 @@ local function Drop(src, tgt, value)
     else
         return
     end
-    Extras:MarkDirty()
-    Extras:RefreshUI()
+    RaidUtility:MarkDirty()
+    RaidUtility:RefreshUI()
 end
 
 local function OnDragStart(slot)
     if (slot.value or "") == "" then return end
-    Extras.dragSource, Extras.dragValue, Extras.dragIndex = slot, slot.value, slot.i
+    RaidUtility.dragSource, RaidUtility.dragValue, RaidUtility.dragIndex = slot, slot.value, slot.i
     local g = GetGhost()
     g.text:SetText(slot.value)
     g.text:SetTextColor(EntryColor(slot.value))
@@ -132,8 +132,8 @@ end
 local function OnDragStop(slot)
     if ghost then ghost:Hide() end
     slot:SetAlpha(1)
-    local src, value, index = Extras.dragSource, Extras.dragValue, Extras.dragIndex
-    Extras.dragSource, Extras.dragValue, Extras.dragIndex = nil, nil, nil
+    local src, value, index = RaidUtility.dragSource, RaidUtility.dragValue, RaidUtility.dragIndex
+    RaidUtility.dragSource, RaidUtility.dragValue, RaidUtility.dragIndex = nil, nil, nil
     if src then Drop(src, FindDropTarget(), value) end
 end
 
@@ -141,7 +141,7 @@ end
 -- Inline name editor (click empty slot / double-click a name)
 -- ------------------------------------------------------------
 local function OpenEditor(slot)
-    local ui = Extras.ui
+    local ui = RaidUtility.ui
     local e = ui.editor
     e.slot, e.cancelled = slot, false
     e:ClearAllPoints()
@@ -164,11 +164,11 @@ local function CreateEditor(parent)
         local slot = self.slot
         self:Hide()
         if self.cancelled or not slot then return end
-        local value = Extras.Trim(self:GetText())
-        if value ~= (Extras.draft[slot.g][slot.s] or "") then
-            Extras.draft[slot.g][slot.s] = value
-            Extras:MarkDirty()
-            Extras:RefreshUI()
+        local value = RaidUtility.Trim(self:GetText())
+        if value ~= (RaidUtility.draft[slot.g][slot.s] or "") then
+            RaidUtility.draft[slot.g][slot.s] = value
+            RaidUtility:MarkDirty()
+            RaidUtility:RefreshUI()
         end
     end)
     return e
@@ -199,9 +199,9 @@ local function CreateSlot(parent, kind, w, h)
         b:SetScript("OnClick", function(self, button)
             if button == "RightButton" then
                 if (self.value or "") ~= "" then
-                    Extras.draft[self.g][self.s] = ""
-                    Extras:MarkDirty()
-                    Extras:RefreshUI()
+                    RaidUtility.draft[self.g][self.s] = ""
+                    RaidUtility:MarkDirty()
+                    RaidUtility:RefreshUI()
                 end
             elseif (self.value or "") == "" then
                 OpenEditor(self)
@@ -217,7 +217,7 @@ end
 -- ------------------------------------------------------------
 -- Build tab
 -- ------------------------------------------------------------
-function Extras:BuildRosterTab(frame, NSI)
+function RaidUtility:BuildRosterTab(frame, NSI)
     local C = NSI.UI.Components
     local ui = { groupSlots = {}, benchSlots = {} }
     self.ui = ui
@@ -247,10 +247,10 @@ function Extras:BuildRosterTab(frame, NSI)
         return b
     end
     TopButton("New roster", 330, 120, function()
-        self:ConfirmDiscard(function() StaticPopup_Show("NSRTEXTRAS_NEW_ROSTER") end)
+        self:ConfirmDiscard(function() StaticPopup_Show("NSRTRAIDUTILITY_NEW_ROSTER") end)
     end)
     TopButton("Delete roster", 455, 120, function()
-        StaticPopup_Show("NSRTEXTRAS_DELETE_ROSTER", self.db.active, nil, self.db.active)
+        StaticPopup_Show("NSRTRAIDUTILITY_DELETE_ROSTER", self.db.active, nil, self.db.active)
     end)
     TopButton("Save", 605, 90, function() self:SaveDraft(); self:RefreshUI() end)
     TopButton("Revert", 700, 90, function() self:LoadDraft(); self:RefreshUI() end)
@@ -323,7 +323,7 @@ function Extras:BuildRosterTab(frame, NSI)
     self:RefreshUI()
 end
 
-function Extras:RefreshUI()
+function RaidUtility:RefreshUI()
     local ui = self.ui
     if not ui then return end
     local d = self.draft

@@ -1,8 +1,8 @@
 -- Split raid: divide the current raid into two balanced sides using the built-in damage meter
-local _, Extras = ...
+local _, RaidUtility = ...
 
 -- Side layouts. Each returns the group numbers for side 1 and side 2, given groups needed per side.
-Extras.SplitLayouts = {
+RaidUtility.SplitLayouts = {
     { key = "oddeven", label = "Alternating (1, 3 vs 2, 4)",
       groups = function(n)
           local a, b = {}, {}
@@ -19,7 +19,7 @@ Extras.SplitLayouts = {
 
 local function IsSecret(v) return issecretvalue ~= nil and issecretvalue(v) end
 
--- Overall-session per-second values from Blizzard's damage meter, keyed by Extras.Key(name).
+-- Overall-session per-second values from Blizzard's damage meter, keyed by RaidUtility.Key(name).
 -- Out of combat the source list is readable; in combat names/values can be secret, so skip those.
 local function MeterValues(meterType)
     local out = {}
@@ -29,7 +29,7 @@ local function MeterValues(meterType)
     for _, src in ipairs(session.combatSources) do
         local name, v = src.name, src.amountPerSecond
         if name and v and not IsSecret(name) and not IsSecret(v) and type(v) == "number" then
-            out[Extras.Key(name)] = v
+            out[RaidUtility.Key(name)] = v
         end
     end
     return out
@@ -38,7 +38,7 @@ end
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 
 -- Raid members with role and meter value (HPS for healers, DPS for everyone else)
-function Extras:GetSplitPlayers()
+function RaidUtility:GetSplitPlayers()
     if not (Enum.DamageMeterType) then return nil, "The damage meter isn't available." end
     local dps = MeterValues(Enum.DamageMeterType.DamageDone)
     local hps = MeterValues(Enum.DamageMeterType.HealingDone)
@@ -60,7 +60,7 @@ end
 
 -- Balance players into two sides: tanks and healers are spread evenly first, then within each role
 -- the strongest remaining player goes to the side with the lower total for that role.
-function Extras.BalanceSides(players)
+function RaidUtility.BalanceSides(players)
     local sides = { { players = {}, count = 0 }, { players = {}, count = 0 } }
     local cap = { math.ceil(#players / 2), math.floor(#players / 2) }
     local byRole = { TANK = {}, HEALER = {}, DAMAGER = {} }
@@ -94,7 +94,7 @@ function Extras.BalanceSides(players)
     return sides
 end
 
-function Extras.SideTotals(side)
+function RaidUtility.SideTotals(side)
     local t = { dps = 0, hps = 0, TANK = 0, HEALER = 0, DAMAGER = 0 }
     for _, p in ipairs(side.players) do
         t.dps, t.hps = t.dps + p.dps, t.hps + p.hps
@@ -103,19 +103,19 @@ function Extras.SideTotals(side)
     return t
 end
 
-function Extras.GetSplitLayout(key)
-    for _, l in ipairs(Extras.SplitLayouts) do if l.key == key then return l end end
-    return Extras.SplitLayouts[1]
+function RaidUtility.GetSplitLayout(key)
+    for _, l in ipairs(RaidUtility.SplitLayouts) do if l.key == key then return l end end
+    return RaidUtility.SplitLayouts[1]
 end
 
 -- Group numbers each side uses for the current split
-function Extras:GetSplitGroups(sides, layoutKey)
+function RaidUtility:GetSplitGroups(sides, layoutKey)
     local n = math.max(1, math.ceil(math.max(#sides[1].players, #sides[2].players) / 5))
     return self.GetSplitLayout(layoutKey).groups(n)
 end
 
 -- Build a roster (8x5) from the sides: tanks, then healers, then damage, filling each side's groups in order
-function Extras:SplitToRoster(sides, layoutKey)
+function RaidUtility:SplitToRoster(sides, layoutKey)
     local roster = self.NewRoster()
     local groups = { self:GetSplitGroups(sides, layoutKey) }
     for s = 1, 2 do

@@ -1,11 +1,11 @@
 ## Interface: 120100
-## Title: |cFF00FFFFNSRT|r Raid Utils
+## Title: |cFF00FFFFNSRT|r Raid Utility
 ## Notes: Saved raid rosters, group sorting and balanced raid splits, inside the Northern Sky Raid Tools window
 ## Author: Evan
 ## Version: @project-version@
 ## Dependencies: NorthernSkyRaidTools
 ## OptionalDeps: NorthernSkyRaidTools_UI
-## SavedVariables: NSRTExtrasDB
+## SavedVariables: NSRTRaidUtilityDB
 ## X-Curse-Project-ID: 1722253
 
 Roster.lua

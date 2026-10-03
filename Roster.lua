@@ -1,31 +1,31 @@
 -- Roster data, working draft, and group arranging (uses NSRT's own ArrangeGroups engine)
-local _, Extras = ...
-local PREFIX = "|cFF00FFFFNSRT Raid Utils:|r "
+local _, RaidUtility = ...
+local PREFIX = "|cFF00FFFFNSRT Raid Utility:|r "
 
 local function Print(msg) print(PREFIX .. msg) end
-Extras.Print = Print
+RaidUtility.Print = Print
 
 local function Trim(s) return (s or ""):match("^%s*(.-)%s*$") end
-Extras.Trim = Trim
+RaidUtility.Trim = Trim
 
 -- A roster is 8 groups x 5 slots.
-function Extras.NewRoster()
+function RaidUtility.NewRoster()
     local r = {}
     for g = 1, 8 do r[g] = { "", "", "", "", "" } end
     return r
 end
 
-function Extras.CopyRoster(src)
-    local r = Extras.NewRoster()
+function RaidUtility.CopyRoster(src)
+    local r = RaidUtility.NewRoster()
     if src then
         for g = 1, 8 do for s = 1, 5 do r[g][s] = (src[g] and src[g][s]) or "" end end
     end
     return r
 end
 
-function Extras:InitDB()
-    NSRTExtrasDB = NSRTExtrasDB or {}
-    local db = NSRTExtrasDB
+function RaidUtility:InitDB()
+    NSRTRaidUtilityDB = NSRTRaidUtilityDB or {}
+    local db = NSRTRaidUtilityDB
     db.rosters = db.rosters or {}
     if not next(db.rosters) then db.rosters["Default"] = self.NewRoster() end
     db.pool = nil                               -- old shared player pool; Unassigned is now just the live group
@@ -35,9 +35,9 @@ function Extras:InitDB()
     self:LoadDraft()
 end
 
-function Extras:GetActive() return self.db.rosters[self.db.active], self.db.active end
+function RaidUtility:GetActive() return self.db.rosters[self.db.active], self.db.active end
 
-function Extras:GetRosterNames()
+function RaidUtility:GetRosterNames()
     local names = {}
     for name in pairs(self.db.rosters) do names[#names + 1] = name end
     table.sort(names)
@@ -47,20 +47,20 @@ end
 -- ------------------------------------------------------------
 -- Draft: all UI edits happen here until Save is pressed
 -- ------------------------------------------------------------
-function Extras:LoadDraft()
+function RaidUtility:LoadDraft()
     self.draft = self.CopyRoster(self:GetActive())
     self.dirty = false
 end
 
-function Extras:SaveDraft()
+function RaidUtility:SaveDraft()
     self.db.rosters[self.db.active] = self.CopyRoster(self.draft)
     self.dirty = false
     Print("Saved roster '" .. self.db.active .. "'.")
 end
 
-function Extras:MarkDirty() self.dirty = true end
+function RaidUtility:MarkDirty() self.dirty = true end
 
-function Extras:CreateRoster(name)
+function RaidUtility:CreateRoster(name)
     name = Trim(name)
     if name == "" then return end
     if self.db.rosters[name] then Print("Roster '" .. name .. "' already exists.") return end
@@ -70,7 +70,7 @@ function Extras:CreateRoster(name)
     return true
 end
 
-function Extras:DeleteRoster(name)
+function RaidUtility:DeleteRoster(name)
     self.db.rosters[name] = nil
     if not next(self.db.rosters) then self.db.rosters["Default"] = self.NewRoster() end
     if self.db.active == name then self.db.active = self:GetRosterNames()[1] end
@@ -78,7 +78,7 @@ function Extras:DeleteRoster(name)
 end
 
 -- Resolve a roster entry (character, Name-Realm, or NSRT nickname) to a raid index
-function Extras:ResolveRaidIndex(entry)
+function RaidUtility:ResolveRaidIndex(entry)
     entry = Trim(entry)
     if entry == "" or not IsInRaid() then return end
     local base = strsplit("-", entry)
@@ -106,9 +106,9 @@ end
 
 -- Unassigned = current raid/party members not placed in the roster being edited.
 local function Key(name) return (strsplit("-", Trim(name))):lower() end
-Extras.Key = Key
+RaidUtility.Key = Key
 
-function Extras:GetUnassigned(roster)
+function RaidUtility:GetUnassigned(roster)
     local placed = {}
     for g = 1, 8 do for s = 1, 5 do
         local v = Trim(roster[g][s])
@@ -131,7 +131,7 @@ function Extras:GetUnassigned(roster)
 end
 
 -- Copy the group's current layout (raid subgroups, or the party as group 1) into roster
-function Extras:FillFromRaid(roster)
+function RaidUtility:FillFromRaid(roster)
     if not IsInGroup() then Print("You are not in a group.") return end
     for g = 1, 8 do for s = 1, 5 do roster[g][s] = "" end end
     if IsInRaid() then
@@ -149,7 +149,7 @@ function Extras:FillFromRaid(roster)
     return true
 end
 
-function Extras:InviteMissing(roster)
+function RaidUtility:InviteMissing(roster)
     local NSI = _G.NorthernSkyRaidTools
     roster = roster or self:GetActive()
     local list = {}
@@ -165,7 +165,7 @@ function Extras:InviteMissing(roster)
 end
 
 -- roster: a roster table (e.g. the UI draft). rosterName: a saved roster. Neither = active saved roster.
-function Extras:Arrange(rosterName, roster)
+function RaidUtility:Arrange(rosterName, roster)
     local NSI = _G.NorthernSkyRaidTools
     if not (NSI and NSI.ArrangeGroups) then Print("NSRT group sorting is not available.") return end
     if not IsInRaid() then Print("You are not in a raid.") return end

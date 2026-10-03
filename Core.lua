@@ -1,10 +1,10 @@
 -- Injects the Rosters and Split Raid tabs into the NSRT options window + events and slash commands
-local ADDON, Extras = ...
+local ADDON, RaidUtility = ...
 local TABS = {
-    { name = "NSRTExtras",      label = "Rosters",    build = "BuildRosterTab" },
-    { name = "NSRTExtrasSplit", label = "Split Raid", build = "BuildSplitTab" },
+    { name = "NSRTRaidUtility",      label = "Rosters",    build = "BuildRosterTab" },
+    { name = "NSRTRaidUtilitySplit", label = "Split Raid", build = "BuildSplitTab" },
 }
-Extras.ROSTER_TAB, Extras.SPLIT_TAB = TABS[1].name, TABS[2].name
+RaidUtility.ROSTER_TAB, RaidUtility.SPLIT_TAB = TABS[1].name, TABS[2].name
 
 local injected, hooked = false, false
 
@@ -19,7 +19,7 @@ local function InjectTab()
     local lastBtn = menu.AllButtonsByName["Versions"]   -- last sidebar button
     if not (refTab and lastBtn) then return end
 
-    Extras.menu = menu
+    RaidUtility.menu = menu
     local anchor, gap = lastBtn.frame, -14     -- our buttons form their own block under "Versions"
     for _, tab in ipairs(TABS) do
         local frame = CreateFrame("Frame", "NSUI_TabFrame_" .. tab.name, NSUI, "BackdropTemplate")
@@ -37,7 +37,7 @@ local function InjectTab()
         table.insert(menu.AllFrames, frame)
         table.insert(menu.AllButtons, btn)
 
-        Extras[tab.build](Extras, frame, NSI)
+        RaidUtility[tab.build](RaidUtility, frame, NSI)
     end
     injected = true
 end
@@ -64,30 +64,31 @@ f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:SetScript("OnEvent", function(_, event, name)
     if event == "GROUP_ROSTER_UPDATE" then
-        if Extras.ui then Extras:RefreshUI() end
+        if RaidUtility.ui then RaidUtility:RefreshUI() end
     elseif name == ADDON then
-        Extras:InitDB()
+        RaidUtility:InitDB()
         HookUI()
     elseif name == "NorthernSkyRaidTools_UI" then
         HookUI()
     end
 end)
 
--- /nsx                 open the Rosters tab
--- /nsx split           open the Split Raid tab
--- /nsx arrange [name]  sort groups using the active (or named) roster
--- /nsx invite          invite roster players not in the group
-SLASH_NSRTEXTRAS1 = "/nsx"
-SlashCmdList.NSRTEXTRAS = function(msg)
+-- /nru                 open the Rosters tab (/nsx still works)
+-- /nru split           open the Split Raid tab
+-- /nru arrange [name]  sort groups using the active (or named) roster
+-- /nru invite          invite roster players not in the group
+SLASH_NSRTRAIDUTILITY1 = "/nru"
+SLASH_NSRTRAIDUTILITY2 = "/nsx"
+SlashCmdList.NSRTRAIDUTILITY = function(msg)
     local cmd, rest = (msg or ""):match("^%s*(%S*)%s*(.-)%s*$")
     cmd = cmd:lower()
     if cmd == "arrange" then
-        Extras:Arrange(rest ~= "" and rest or nil)
+        RaidUtility:Arrange(rest ~= "" and rest or nil)
     elseif cmd == "invite" then
-        Extras:InviteMissing()
+        RaidUtility:InviteMissing()
     elseif cmd == "split" then
-        OpenTab(Extras.SPLIT_TAB)
+        OpenTab(RaidUtility.SPLIT_TAB)
     else
-        OpenTab(Extras.ROSTER_TAB)
+        OpenTab(RaidUtility.ROSTER_TAB)
     end
 end

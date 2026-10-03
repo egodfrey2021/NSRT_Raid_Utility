@@ -1,5 +1,5 @@
 -- Split Raid tab: preview two balanced sides, tweak by clicking, then send to the Rosters tab or arrange
-local _, Extras = ...
+local _, RaidUtility = ...
 
 local WHITE = "Interface\\Buttons\\WHITE8x8"
 local COL_X     = { 10, 420 }
@@ -31,11 +31,11 @@ local function CreateRow(parent)
     b.value:SetPoint("RIGHT", -6, 0)
     b:SetScript("OnEnter", function(self) self:SetBackdropColor(0, 1, 1, 0.15) end)
     b:SetScript("OnLeave", function(self) self:SetBackdropColor(0, 0, 0, 0.35) end)
-    b:SetScript("OnClick", function(self) Extras:MoveSplitPlayer(self.side, self.index) end)
+    b:SetScript("OnClick", function(self) RaidUtility:MoveSplitPlayer(self.side, self.index) end)
     return b
 end
 
-function Extras:RunSplit()
+function RaidUtility:RunSplit()
     if not IsInRaid() then self.Print("You are not in a raid.") return end
     if InCombatLockdown() then self.Print("Can't read the damage meter in combat.") return end
     local players, withData = self:GetSplitPlayers()
@@ -47,7 +47,7 @@ function Extras:RunSplit()
     self:RefreshSplitUI()
 end
 
-function Extras:MoveSplitPlayer(from, index)
+function RaidUtility:MoveSplitPlayer(from, index)
     local sides = self.split and self.split.sides
     if not (sides and sides[from].players[index]) then return end
     local to = 3 - from
@@ -57,12 +57,12 @@ function Extras:MoveSplitPlayer(from, index)
     self:RefreshSplitUI()
 end
 
-function Extras:SplitRoster()
+function RaidUtility:SplitRoster()
     if not self.split then self.Print("Press Split raid first.") return end
     return self:SplitToRoster(self.split.sides, self.db.splitLayout)
 end
 
-function Extras:BuildSplitTab(frame, NSI)
+function RaidUtility:BuildSplitTab(frame, NSI)
     local C = NSI.UI.Components
     local ui = { rows = { {}, {} } }
     self.splitUI = ui
@@ -125,7 +125,7 @@ function Extras:BuildSplitTab(frame, NSI)
     self:RefreshSplitUI()
 end
 
-function Extras:RefreshSplitUI()
+function RaidUtility:RefreshSplitUI()
     local ui = self.splitUI
     if not ui then return end
     ui.layout:Refresh()

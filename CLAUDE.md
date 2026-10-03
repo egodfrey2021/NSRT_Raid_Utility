@@ -1,19 +1,19 @@
-# NSRT Raid Utils (folder: NSRT_Extras): project context
+# NSRT Raid Utility: project context
 
 WoW Retail addon (Lua, interface 12.1.0) that adds a **Rosters** tab to the
 Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 
 ## What it does
-- 8 groups x 5 slots per roster; many named rosters saved in `NSRTExtrasDB.rosters`.
+- 8 groups x 5 slots per roster; many named rosters saved in `NSRTRaidUtilityDB.rosters`.
 - **Unassigned** panel = current raid/party members minus anyone placed in the roster being edited
   (nothing else; a shared "player pool" existed before v1.0.1 and was removed because names leaked
   between rosters). "Fill from current raid" copies the live subgroup layout into the draft.
 - Drag and drop between slots (move/swap), Unassigned to slot (place), slot to Unassigned (un-place).
   Click empty slot / double-click name to type (for planning offline players). Right-click clears a slot.
-- Group edits go to a draft (`Extras.draft`); **Save** commits, **Revert** discards, switching or
+- Group edits go to a draft (`RaidUtility.draft`); **Save** commits, **Revert** discards, switching or
   creating rosters with unsaved edits asks to confirm.
-- **Arrange groups** sorts the real raid to match the draft; `/nsx arrange` uses the saved roster.
-- **Split Raid** tab (`/nsx split`): splits current raid members into two sides. Tanks, then healers,
+- **Arrange groups** sorts the real raid to match the draft; `/nru arrange` uses the saved roster.
+- **Split Raid** tab (`/nru split`): splits current raid members into two sides. Tanks, then healers,
   then damage are distributed per role, each player to the side with the lower role total (odd one out
   of a role goes to the smaller side). Values come from Blizzard's `C_DamageMeter` Overall session
   (`amountPerSecond`; DamageDone for tanks/dps, HealingDone for healers). Names/values can be secret in
@@ -25,7 +25,7 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 - `RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
 - `Split.lua`: damage meter reading, side balancing, side -> roster layout.
 - `SplitUI.lua`: Split Raid tab.
-- `Core.lua`: injects both tabs into NSRT's window, events, `/nsx` slash command.
+- `Core.lua`: injects both tabs into NSRT's window, events, `/nru` slash command (`/nsx` kept as an alias).
 
 ## How it hooks into NSRT (no official plugin API exists)
 - NSRT exposes `_G.NorthernSkyRaidTools` (internal namespace, unstable) and `NSAPI` (public).
@@ -55,7 +55,8 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 - Repo is packaged with BigWigsMods/packager via `.github/workflows/release.yml` on tag push.
 - `## Version: @project-version@` is replaced by the git tag. `.pkgmeta` excludes README/CLAUDE/media.
 - Needs repo secret `CF_API_TOKEN` (CurseForge API token).
-- CurseForge project ID 1722253 is in the .toc (`X-Curse-Project-ID`); GitHub repo egodfrey2021/NSRT_Extras.
+- CurseForge project ID 1722253 is in the .toc (`X-Curse-Project-ID`); GitHub repo egodfrey2021/NSRT_Raid_Utility.
 - CurseForge Relations: set Northern Sky Raid Tools as a required dependency.
-- Public name: "NSRT Raid Utils" (was "Roster for NSRT" up to v1.1.0). Folder/SavedVariables stay NSRT_Extras / NSRTExtrasDB so existing data carries over.
+- Public name "NSRT Raid Utility"; folder NSRT_Raid_Utility, SavedVariables NSRTRaidUtilityDB. Up to v1.1.0 it was
+  "Roster for NSRT" in folder NSRT_Extras (NSRTExtrasDB); the rename does not carry old saved data over.
 - Not yet tested in-game beyond basic UI; syntax-checked only.

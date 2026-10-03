@@ -1,4 +1,4 @@
-package-as: NSRT_Extras
+package-as: NSRT_Raid_Utility
 
 ignore:
   - README.md
