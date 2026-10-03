@@ -1,7 +1,8 @@
 -- In-game tests (WoWUnit). They check what the offline tests can't: the real client and the real NSRT. WoWUnit runs
 -- them at PLAYER_LOGIN (login and /reload), five times 0.1s apart, and shows the results in its own window. Tests
--- must be safe to repeat and leave nothing behind. Not shipped: the .toc lists this file inside a
--- #@do-not-package@ block. Without WoWUnit installed this file does nothing.
+-- must be safe to repeat and leave nothing behind: build any frame once, keep it hidden, and turn auto-focus off
+-- on an EditBox before anything else (a focused one takes the keyboard from chat). Not shipped: the .toc lists this
+-- file inside a #@do-not-package@ block. Without WoWUnit installed this file does nothing.
 if not WoWUnit then return end
 
 local _, RaidUtility = ...
@@ -43,6 +44,38 @@ function Tests:FrameXMLGlobals()
 end
 
 local scrollProbe -- frames can't be destroyed, so the scrollbar probe is built once and reused on every run
+
+function Tests:ChatAPI()
+    -- Post to raid: sending, and the lockdown check that disables it during encounter restrictions (read-only here)
+    IsTrue(type(C_ChatInfo.SendChatMessage) == "function")
+    IsTrue(type(C_ChatInfo.InChatMessagingLockdown()) == "boolean")
+end
+
+function Tests:DamageMeterStoredSessions()
+    -- "Last fight": the Current session, else the newest stored one
+    IsTrue(type(Enum.DamageMeterSessionType.Current) == "number")
+    IsTrue(type(C_DamageMeter.GetCombatSessionFromID) == "function")
+    local ok, sessions = pcall(C_DamageMeter.GetAvailableCombatSessions)
+    IsTrue(ok)
+    IsTrue(type(sessions) == "table")
+end
+
+local historyProbe -- frames can't be destroyed, so the probe is built once and reused on every run
+
+function Tests:ScrollFrameTemplate()
+    -- the History popup's scroll frame
+    local ok, err = pcall(function()
+        if historyProbe then return end
+        historyProbe = CreateFrame("ScrollFrame", nil, UIParent, "UIPanelScrollFrameTemplate")
+        historyProbe:Hide()
+    end)
+    AreEqual(nil, ok and nil or err)
+end
+
+function Tests:PowerInfusionIcon()
+    -- the PI slot marker's texture (a wrong path shows as a green square)
+    IsTrue(GetFileIDFromPath(RaidUtility.Widgets.PI_ICON) ~= nil)
+end
 
 function Tests:MinimalScrollBarTemplate()
     -- the Unassigned panel's scrollbar
@@ -146,6 +179,31 @@ function Tests:NSRTInviteListGrammar()
     -- "Import list" relies on NSRT's reader: comma lists are positional, empty fields keep a slot open
     AreEqual({ "Ann", "", "Bob" }, NSRT.ParseInviteList("invitelist: Ann, , Bob"))
     AreEqual({ "Ann", "Bob" }, NSRT.ParseInviteList("invitelist: Ann Bob"))
+    local roster = RaidUtility.NewRoster()
+    roster[1][1], roster[2][2] = "Ann", "Bob"
+    local parsed = NSRT.ParseInviteList(RaidUtility:ExportWoWUtils(roster))
+    AreEqual("Ann", parsed[1])
+    AreEqual("", parsed[5])
+    AreEqual("Bob", parsed[7])
+end
+
+-- Built once and never shown: frames can't be destroyed, and an EditBox takes the keyboard when shown unless
+-- auto-focus is off. A visible, focused box here (as a failed assertion could leave behind) blocks all typing,
+-- chat and slash commands included, for the whole session.
+local editProbe
+
+function Tests:ExchangeEditBox()
+    -- the Import/Export panel's multi-line box keeps the line breaks of a pasted export
+    if not editProbe then
+        editProbe = CreateFrame("EditBox", nil, UIParent)
+        editProbe:Hide()
+        editProbe:SetAutoFocus(false)
+        editProbe:ClearFocus()
+        editProbe:SetFontObject(GameFontHighlightSmall)
+        editProbe:SetMultiLine(true)
+    end
+    editProbe:SetText("one\ntwo")
+    AreEqual("one\ntwo", editProbe:GetText())
 end
 
 function Tests:SortShimInstalled()
@@ -160,16 +218,18 @@ function Tests:LiveGroupMembers()
     if Preview.IsActive() then return end
     local members = RaidUtility.GetGroupMembers()
     if not IsInGroup() then
-        AreEqual(0, #members)
+        AreEqual(1, #members) -- solo, the group is just you
+        IsTrue(UnitIsUnit(members[1].unit, "player"))
         return
     end
-    local _, class = UnitClass("player")
+    local _, class, classID = UnitClass("player")
     local me
     for _, member in ipairs(members) do
         if UnitIsUnit(member.unit, "player") then me = member end
     end
     Exists(me)
     AreEqual(class, me.class)
+    AreEqual(classID, me.classID)
 end
 
 function Tests:PreviewRoundTrip()

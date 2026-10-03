@@ -52,7 +52,7 @@ local function GetSession(source, meterType)
     local session = C_DamageMeter.GetCombatSessionFromType(Types.Current, meterType)
     local sources = type(session) == "table" and session.combatSources
     if type(sources) == "table" and #sources > 0 then return session end
-    local list = C_DamageMeter.GetAvailableCombatSessions and C_DamageMeter.GetAvailableCombatSessions()
+    local list = C_DamageMeter.GetAvailableCombatSessions()
     local newest
     for _, info in ipairs(type(list) == "table" and list or {}) do
         local id = type(info) == "table" and info.sessionID
@@ -114,13 +114,10 @@ local function SpecFromIcon(icon)
     if not icon then return end
     if not specIcons then
         specIcons = {}
-        local SpecCount = C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializationsForClassID
-        if GetNumClasses and SpecCount and GetSpecializationInfoForClassID then
-            for classID = 1, GetNumClasses() do
-                for i = 1, SpecCount(classID) or 0 do
-                    local id, _, _, specIcon, role = GetSpecializationInfoForClassID(classID, i)
-                    if specIcon and ROLE_ORDER[role] then specIcons[specIcon] = { id = id, role = role } end
-                end
+        for classID = 1, GetNumClasses() do
+            for i = 1, C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0 do
+                local id, _, _, specIcon, role = GetSpecializationInfoForClassID(classID, i)
+                if specIcon and ROLE_ORDER[role] then specIcons[specIcon] = { id = id, role = role } end
             end
         end
     end
@@ -245,6 +242,16 @@ local function Reading(dps, hps, players)
     return { dps = dps, hps = hps, players = players, byName = byName, specByKey = specByKey }
 end
 
+-- The meter's players without their numbers: who they are (class, spec, role), for "Roles only"
+function RaidUtility.MeterIdentities(meter)
+    if not meter then return end
+    local players = {}
+    for i, p in ipairs(meter.players) do
+        players[i] = { name = p.name, member = p.member, class = p.class, role = p.role, specID = p.specID }
+    end
+    return Reading({}, {}, players)
+end
+
 -- The preview raid's made-up meter numbers
 local function PreviewMeter(utility, members)
     local dps, hps, players = {}, {}, {}
@@ -265,17 +272,6 @@ local function PreviewMeter(utility, members)
 end
 
 local function LiveMeter(self, members, source)
-    if
-        not (
-            C_DamageMeter
-            and C_DamageMeter.GetCombatSessionFromType
-            and Enum
-            and Enum.DamageMeterType
-            and Enum.DamageMeterSessionType
-        )
-    then
-        return nil, L["The damage meter isn't available."]
-    end
     local dps, damage = MeterValues(self, members, Enum.DamageMeterType.DamageDone, METER_TEXT.damage, source)
     if not dps then return nil, damage end
     local hps, healing = MeterValues(self, members, Enum.DamageMeterType.HealingDone, METER_TEXT.healing, source)
@@ -286,6 +282,11 @@ end
 -- The damage meter, solo, in a party or in a raid (the preview raid's numbers while it's on), from the session
 -- the split options pick: the Overall session, or the last fight ("Roles only" still shows Overall numbers).
 -- Returns a MeterReading, or nil and an error message. Call out of combat: values can be secret in combat.
+-- Keep a reading for the slot numbers and strip, and when it was taken (a clock time, for the caption)
+function RaidUtility:SetMeterReading(reading)
+    self.meter, self.meterTime = reading, reading and date("%H:%M") or nil
+end
+
 -- source: "overall" or "lastfight" to override the setting (the meter import always reads Overall)
 ---@return MeterReading? reading
 ---@return string? err
@@ -295,44 +296,121 @@ function RaidUtility:ReadMeter(members, source)
     return LiveMeter(self, members, source)
 end
 
+-- ------------------------------------------------------------
+-- Who plays: offline players never do, and with "Groups 1-4 only" neither do groups 5-8 (players sitting out)
+-- ------------------------------------------------------------
+local MYTHIC_RAID = 16 -- difficulty ID: 20 players fight, and raids park the rest in groups 5-8
+RaidUtility.ACTIVE_GROUPS = 4
+
+-- "Groups 1-4 only": the saved choice once the player has made one, else on in a Mythic raid
+function RaidUtility:ActiveGroupsOnly()
+    if self.db.splitGroups14 ~= nil then return self.db.splitGroups14 end
+    local _, instanceType, difficulty = GetInstanceInfo()
+    return instanceType == "raid" and difficulty == MYTHIC_RAID
+end
+
+-- The last roster group that plays: 4 with "Groups 1-4 only", else 8
+function RaidUtility:MaxGroup() return self:ActiveGroupsOnly() and self.ACTIVE_GROUPS or 8 end
+
+-- A live member who takes part in a split: online, and in a playing group of the raid
+function RaidUtility:Plays(member) return member.online ~= false and (member.subgroup or 1) <= self:MaxGroup() end
+
+-- How many split players have meter data, no role, and a guessed melee/ranged position
+local function CountNotes(players)
+    local withData, noRole, guessed = 0, 0, 0
+    for _, p in ipairs(players) do
+        if p.hasData then withData = withData + 1 end
+        if p.assumedRole then noRole = noRole + 1 end
+        if p.guessedPosition then guessed = guessed + 1 end
+    end
+    return withData, noRole, guessed
+end
+
 -- Raid members with role, position and meter value (HPS for healers, DPS for everyone else). Also returns how
--- many have data, no role, and a guessed position, then the meter reading.
+-- many have data, no role, and a guessed position, then the meter reading and the members left out (offline, or
+-- sitting out in groups 5-8).
 function RaidUtility:GetSplitPlayers()
     local members = self.GetGroupMembers()
     local meter, meterError = self:ReadMeter(members)
     if not meter then return nil, meterError end
-    local dps, hps = meter.dps, meter.hps
-    local players, withData, noRole, guessed = {}, 0, 0, 0
+    local players, leftOut = {}, {}
     for _, member in ipairs(members) do
-        local role, assumed = self:MemberRole(member)
-        if assumed then noRole = noRole + 1 end
-        local position, guess
-        if role ~= "TANK" then
-            position, guess = self:MemberPosition(member, role, meter)
+        if not self:Plays(member) then
+            leftOut[#leftOut + 1] = member
+        else
+            -- EntryName: Name-Realm when two members share a name, so the roster entry resolves
+            local key = member.key
+            self:AddSplitPlayer(players, member, self.EntryName(member, members), meter, meter.dps[key], meter.hps[key])
         end
-        if guess then guessed = guessed + 1 end
-        local lust, rez, buff = self:MemberUtility(member, meter)
-        local key = member.key
-        local value = self.MeterValue(role, dps[key], hps[key])
-        if value then withData = withData + 1 end
-        players[#players + 1] = {
-            physical = self:PhysicalShare(member, meter),
-            key = key,
-            name = self.EntryName(member, members), -- Name-Realm when two members share a name, so it resolves
-            class = member.class,
-            role = role,
-            position = position,
-            lust = lust,
-            rez = rez,
-            buff = buff,
-            assumedRole = assumed,
-            dps = dps[key] or 0,
-            hps = hps[key] or 0,
-            value = value or 0,
-            hasData = value ~= nil,
-        }
     end
-    return players, withData, noRole, meter, guessed
+    local withData, noRole, guessed = CountNotes(players)
+    return players, withData, noRole, meter, guessed, leftOut
+end
+
+-- A roster entry's player for the split and side totals: the group member it names, else the player the damage meter
+-- saw under that name, with the class, spec and role the meter gives (how a roster imported from the meter is
+-- planned solo). Returns the member (or a stand-in for the meter player), then their DPS and HPS, or nil.
+function RaidUtility:EntrySource(entry, members, meter)
+    local member = self:ResolveGroupMember(entry, members)
+    if member then return member, meter and meter.dps[member.key], meter and meter.hps[member.key] end
+    local p = meter and meter.byName[self.Trim(entry):lower()]
+    if not p then return end
+    local standIn = { key = "meter:" .. p.name:lower(), name = p.name, class = p.class, specID = p.specID }
+    standIn.role, standIn.online = p.role, true
+    return standIn, p.dps, p.hps
+end
+
+-- Out of a raid, the players on the roster are split: as group members when they are, as the damage meter saw them
+-- otherwise. Entries the meter doesn't know count as damage with no data. Returns players, how many have data, no
+-- role, a guessed position, the entries left out (groups after MaxGroup), and how many the meter didn't know.
+function RaidUtility:GetRosterSplitPlayers(roster, members, meter)
+    local players, leftOut, seen, unknown, maxGroup = {}, {}, {}, 0, self:MaxGroup()
+    self.ForEachEntry(roster, function(g, _, entry)
+        local id = entry:lower()
+        if seen[id] then return end
+        seen[id] = true
+        if g > maxGroup then
+            leftOut[#leftOut + 1] = { entry = entry, subgroup = g }
+            return
+        end
+        local source, dps, hps = self:EntrySource(entry, members, meter)
+        if not source then
+            unknown = unknown + 1
+            source = { key = "entry:" .. id, name = entry, online = true } -- no role: counted as damage
+        end
+        self:AddSplitPlayer(players, source, entry, meter, dps, hps)
+        players[#players].entry = entry
+    end)
+    local withData, noRole, guessed = CountNotes(players)
+    return players, withData, noRole, guessed, leftOut, unknown
+end
+
+-- One playing member as a split player (see GetSplitPlayers)
+function RaidUtility:AddSplitPlayer(players, member, name, meter, dps, hps)
+    local role, assumed = self:MemberRole(member)
+    local position, guessed
+    if role ~= "TANK" then
+        position, guessed = self:MemberPosition(member, role, meter)
+    end
+    local lust, rez, buff = self:MemberUtility(member, meter)
+    local value = self.MeterValue(role, dps, hps)
+    players[#players + 1] = {
+        physical = self:PhysicalShare(member, meter),
+        key = member.key,
+        name = name,
+        class = member.class,
+        role = role,
+        position = position,
+        guessedPosition = guessed,
+        lust = lust,
+        rez = rez,
+        buff = buff,
+        assumedRole = assumed,
+        dps = dps or 0,
+        hps = hps or 0,
+        value = value or 0,
+        hasData = value ~= nil,
+    }
 end
 
 -- Highest value first; equal values (e.g. a role-only split) fall back to name so results are repeatable
@@ -350,10 +428,10 @@ end
 RaidUtility.RAID_BUFFS = {
     -- name: in chat notes; short: on the balance strip
     { class = "WARRIOR", name = L["Battle Shout"], short = L["Shout"] },
-    { class = "PRIEST", name = L["Power Word: Fortitude"], short = L["Fortitude"] },
+    { class = "PRIEST", name = L["Power Word: Fortitude"], short = L["Fort"] },
     { class = "SHAMAN", name = L["Skyfury"], short = L["Skyfury"] },
-    { class = "MAGE", name = L["Arcane Intellect"], short = L["Intellect"] },
-    { class = "DRUID", name = L["Mark of the Wild"], short = L["Mark"] },
+    { class = "MAGE", name = L["Arcane Intellect"], short = L["Int"] },
+    { class = "DRUID", name = L["Mark of the Wild"], short = L["MotW"] },
     { class = "EVOKER", name = L["Blessing of the Bronze"], short = L["Bronze"] },
     { class = "DEMONHUNTER", name = L["Chaos Brand (magic damage taken)"], short = L["Chaos Brand"] },
     { class = "MONK", name = L["Mystic Touch (physical damage taken)"], short = L["Mystic Touch"] },
@@ -711,9 +789,12 @@ end
 
 -- Which side (1 or 2) each group belongs to in a roster, for the given layout. The groups per side come from
 -- the highest group in use, so a roster made by SplitToRoster maps back to the sides it was built from.
-function RaidUtility.GroupSides(roster, layoutKey)
+-- maxGroup: the last group that plays (4 with "Groups 1-4 only"); later groups get no side
+function RaidUtility.GroupSides(roster, layoutKey, maxGroup)
     local highest = 1
-    RaidUtility.ForEachEntry(roster, function(g) highest = math.max(highest, g) end)
+    RaidUtility.ForEachEntry(roster, function(g)
+        if g <= (maxGroup or 8) then highest = math.max(highest, g) end
+    end)
     local a, b = RaidUtility.GetSplitLayout(layoutKey).groups(math.max(1, math.ceil(highest / 2)))
     local sideOf, groups = {}, { a, b }
     for s = 1, 2 do
@@ -728,7 +809,7 @@ end
 -- Returns sides ({ players, TANK, HEALER, DAMAGER, MELEE, RANGED, dps, hps, withData }), sideOf, groups and
 -- assumed roles. MELEE/RANGED count healers and damage dealers.
 function RaidUtility:RosterBalance(roster, members, layoutKey, meter)
-    local sideOf, groups = self.GroupSides(roster, layoutKey)
+    local sideOf, groups = self.GroupSides(roster, layoutKey, self:MaxGroup())
     local sides, assumedCount, seen = {}, 0, {}
     for s = 1, 2 do
         sides[s] =
@@ -736,8 +817,9 @@ function RaidUtility:RosterBalance(roster, members, layoutKey, meter)
         sides[s].utility = {} -- { lust, rez, buff } per placed member, for Tally
     end
     self.ForEachEntry(roster, function(g, _, entry)
-        local member = self:ResolveGroupMember(entry, members)
-        local side = member and not seen[member.key] and sides[sideOf[g]]
+        local member, dps, hps = self:EntrySource(entry, members, meter)
+        if not (member and member.online) or seen[member.key] then return end
+        local side = sides[sideOf[g]]
         if not side then return end
         seen[member.key] = true
         local role, assumed = self:MemberRole(member)
@@ -749,11 +831,8 @@ function RaidUtility:RosterBalance(roster, members, layoutKey, meter)
         end
         local lust, rez, buff = self:MemberUtility(member, meter)
         side.utility[#side.utility + 1] = { lust = lust, rez = rez, buff = buff }
-        if meter then
-            local dps, hps = meter.dps[member.key], meter.hps[member.key]
-            side.dps, side.hps = side.dps + (dps or 0), side.hps + (hps or 0)
-            if self.MeterValue(role, dps, hps) then side.withData = side.withData + 1 end
-        end
+        side.dps, side.hps = side.dps + (dps or 0), side.hps + (hps or 0)
+        if self.MeterValue(role, dps, hps) then side.withData = side.withData + 1 end
     end)
     return sides, sideOf, groups, assumedCount
 end

@@ -5,6 +5,12 @@ RaidUtility.Widgets = Widgets
 
 Widgets.WHITE = "Interface\\Buttons\\WHITE8x8"
 
+-- Power Infusion's spell icon, for the slot markers
+Widgets.PI_ICON = "Interface\\Icons\\Spell_Holy_PowerInfusion"
+
+-- Side colors: A and B in group headers, pin bars and the balance strip
+Widgets.SIDE_COLOR = { { 0.4, 0.8, 1 }, { 1, 0.65, 0.25 } }
+
 Widgets.ROLE_ICON = {
     TANK = INLINE_TANK_ICON,
     HEALER = INLINE_HEALER_ICON,
@@ -25,11 +31,14 @@ function Widgets.TopButton(C, frame, text, x, w, fn)
     return b
 end
 
--- Hover text on a frame. Hooks rather than replaces, so NSRT's own hover effects keep working.
+-- Hover text on a frame: a string, or a function returning one (read when hovered, e.g. why a button is off).
+-- Hooks rather than replaces, so NSRT's own hover effects keep working.
 function Widgets.Tooltip(frame, text)
     frame:HookScript("OnEnter", function(self)
+        local shown = type(text) == "function" and text() or text
+        if not shown or shown == "" then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
+        GameTooltip:SetText(shown, 1, 1, 1, 1, true)
         GameTooltip:Show()
     end)
     frame:HookScript("OnLeave", function() GameTooltip:Hide() end)

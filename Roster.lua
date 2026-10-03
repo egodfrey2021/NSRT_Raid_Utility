@@ -22,8 +22,7 @@ RaidUtility.Trim = Trim
 -- False for secret values (names and numbers can be hidden from addons in combat)
 local function Readable(v)
     if v == nil then return false end
-    if canaccessvalue then return canaccessvalue(v) end
-    return not (issecretvalue and issecretvalue(v))
+    return canaccessvalue(v)
 end
 RaidUtility.Readable = Readable
 
@@ -86,6 +85,9 @@ function RaidUtility:InitDB()
     -- "Even melee/ranged": optional extra rule for Generate split
     if db.splitMeleeRanged == nil then db.splitMeleeRanged = false end
     if db.splitLustRez == nil then db.splitLustRez = false end
+    if db.splitPI == nil then db.splitPI = false end
+    -- Power Infusion ranking: "specs" (trust the sims), "balanced", or "players" (damage meter DPS)
+    if not (db.piPriority == "specs" or db.piPriority == "players") then db.piPriority = "balanced" end
     if not (db.splitBuffs == "even" or db.splitBuffs == "max") then db.splitBuffs = "off" end
     -- what the split balances on: "overall" session, "lastfight", or "roles" only
     if not (db.splitMeterSource == "lastfight" or db.splitMeterSource == "roles") then
@@ -93,6 +95,8 @@ function RaidUtility:InitDB()
     end
     -- players pinned to a side for Generate split, per roster (the draft has its own copy until Save)
     db.pins = db.pins or {}
+    -- rosters that came from Generate split (roster name -> true): Power Infusion keeps priests on their own side there
+    db.splitRosters = db.splitRosters or {}
     self.db = db
     self:LoadDraft()
 end
@@ -120,23 +124,110 @@ local function CopyPins(pins)
     return copy
 end
 
+-- Undo: every edit calls MarkDirty after changing the draft, so the state before it is the one kept from the last
+-- call (or from loading). A copy of the groups, pins and split mark, up to UNDO_STEPS deep.
+local UNDO_STEPS = 20
+
+local function DraftState(self)
+    return { draft = self.CopyRoster(self.draft), pins = CopyPins(self.draftPins), split = self.draftSplit }
+end
+
 function RaidUtility:LoadDraft()
     self.draft = self.CopyRoster(self:GetActive())
     self.draftPins = CopyPins(self.db.pins[self.db.active])
+    self.draftSplit = self.db.splitRosters[self.db.active] == true -- draft came from Generate split
     self.dirty = false
+    self:ResetUndo() -- a different roster: nothing to undo
+end
+
+-- Forget the undo history; the current draft becomes the starting point
+function RaidUtility:ResetUndo()
+    self.undo, self.lastState = {}, DraftState(self)
+end
+
+-- True when the draft matches the open roster's last save: groups, pins and split mark. "Unsaved changes" means
+-- this is false, so undoing back to the save, or dragging someone out and back, clears it.
+function RaidUtility:MatchesSaved()
+    local saved = self:GetActive()
+    for g = 1, 8 do
+        for s = 1, 5 do
+            if Trim(self.draft[g][s]) ~= Trim(saved and saved[g] and saved[g][s]) then return false end
+        end
+    end
+    local savedPins = self.db.pins[self.db.active] or {}
+    for key, side in pairs(self.draftPins) do
+        if savedPins[key] ~= side then return false end
+    end
+    for key, side in pairs(savedPins) do
+        if self.draftPins[key] ~= side then return false end
+    end
+    return (self.draftSplit == true) == (self.db.splitRosters[self.db.active] == true)
+end
+
+-- Steps back one edit. Returns true if there was one.
+function RaidUtility:Undo()
+    local state = table.remove(self.undo)
+    if not state then return end
+    self.draft, self.draftPins, self.draftSplit = state.draft, state.pins, state.split
+    self.lastState = DraftState(self)
+    self.dirty = not self:MatchesSaved()
+    return true
+end
+
+function RaidUtility:CanUndo() return #self.undo > 0 end
+
+-- True when the draft has at least one name on it
+function RaidUtility:HasEntries()
+    local any = false
+    self.ForEachEntry(self.draft, function() any = true end)
+    return any
 end
 
 function RaidUtility:SaveDraft()
     self.db.rosters[self.db.active] = self.CopyRoster(self.draft)
     self.db.pins[self.db.active] = next(self.draftPins) and CopyPins(self.draftPins) or nil
+    self.db.splitRosters[self.db.active] = self.draftSplit or nil
     self.dirty = false
     Print(L["Saved roster '%s'."]:format(self.db.active))
 end
 
-function RaidUtility:MarkDirty() self.dirty = true end
+function RaidUtility:MarkDirty()
+    self.dirty = not self:MatchesSaved()
+    table.insert(self.undo, self.lastState)
+    if #self.undo > UNDO_STEPS then table.remove(self.undo, 1) end
+    self.lastState = DraftState(self)
+end
 
--- data, pins: optional roster and pins to start from (copied)
-function RaidUtility:CreateRoster(name, data, pins)
+-- Rename the open roster; its pins and split mark go with it, and unsaved changes stay unsaved
+function RaidUtility:RenameRoster(name)
+    name = Trim(name)
+    local old = self.db.active
+    if not (name and old) or name == "" or name == old then return end
+    if self.db.rosters[name] then
+        Print(L["Roster '%s' already exists."]:format(name))
+        return
+    end
+    -- the roster, its pins and its split mark move to the new name
+    for _, byName in ipairs({ self.db.rosters, self.db.pins or {}, self.db.splitRosters or {} }) do
+        local value = byName[old]
+        byName[old] = nil
+        byName[name] = value
+    end
+    self.db.active = name
+    Print(L["Renamed roster '%1$s' to '%2$s'."]:format(old, name))
+    return true
+end
+
+-- Save what you see (unsaved changes included) as a new roster and open it; the original keeps its last save
+function RaidUtility:DuplicateRoster(name)
+    local source = self.db.active
+    if not self:CreateRoster(name, self.draft, self.draftPins, self.draftSplit) then return end
+    Print(L["Copied '%1$s' to '%2$s'."]:format(source, self.db.active))
+    return true
+end
+
+-- data, pins: optional roster and pins to start from (copied). isSplit: made by Generate split.
+function RaidUtility:CreateRoster(name, data, pins, isSplit)
     name = Trim(name)
     if name == "" then return end
     if self.db.rosters[name] then
@@ -145,6 +236,7 @@ function RaidUtility:CreateRoster(name, data, pins)
     end
     self.db.rosters[name] = self.CopyRoster(data)
     self.db.pins[name] = pins and next(pins) and CopyPins(pins) or nil
+    self.db.splitRosters[name] = isSplit or nil
     self.db.active = name
     self:LoadDraft()
     return true
@@ -153,6 +245,7 @@ end
 function RaidUtility:DeleteRoster(name)
     self.db.rosters[name] = nil
     self.db.pins[name] = nil
+    self.db.splitRosters[name] = nil
     if not next(self.db.rosters) then
         self.db.rosters["Default"] = self.NewRoster()
         Print(L['That was the last roster, so an empty "Default" roster was created.'])
@@ -174,8 +267,10 @@ end
 ---@field realmKey string    lowercased realm
 ---@field key string         lowercased Name-Realm, unique per member
 ---@field class string?      class file, e.g. "MAGE"
+---@field classID number?    numeric Blizzard class ID
 ---@field role string?       assigned role: "TANK", "HEALER", "DAMAGER" or "NONE"
 ---@field subgroup number    raid group (1 in a party)
+---@field online boolean     false only for players the game reports offline
 
 -- The live group, or the preview raid while it's on. Everything that asks "who is in the group" goes through
 -- these, so the preview exercises the same code as a real raid.
@@ -212,7 +307,7 @@ function RaidUtility.GetGroupMembers()
         end
         return members
     end
-    local function AddMember(unit, index, displayName, subgroup)
+    local function AddMember(unit, index, displayName, subgroup, online)
         if not Readable(displayName) then return end
         local unitName, unitRealm = UnitFullName(unit)
         local name = Readable(unitName) and unitName or strsplit("-", displayName)
@@ -221,7 +316,7 @@ function RaidUtility.GetGroupMembers()
             or select(2, strsplit("-", displayName))
             or GetNormalizedRealmName()
         local guid = UnitGUID(unit)
-        local _, class = UnitClass(unit)
+        local _, class, classID = UnitClass(unit)
         local role = UnitGroupRolesAssigned(unit)
         AddToList(
             members,
@@ -232,14 +327,17 @@ function RaidUtility.GetGroupMembers()
                 subgroup = subgroup,
                 guid = Readable(guid) and guid or nil,
                 class = Readable(class) and class or nil,
+                classID = Readable(classID) and classID or nil,
                 role = Readable(role) and role or nil, -- the tab can refresh in combat, and roles key tables
+                -- false only when the game says so; an unknown or hidden value counts as online
+                online = not (Readable(online) and online == false),
             })
         )
     end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            local name, _, subgroup = GetRaidRosterInfo(i)
-            if name then AddMember("raid" .. i, i, name, subgroup) end
+            local name, _, subgroup, _, _, _, _, online = GetRaidRosterInfo(i)
+            if name then AddMember("raid" .. i, i, name, subgroup, online) end
         end
     else
         -- solo, the group is just you (as WoW's own frames show it), so your roster entry resolves like anyone's
@@ -247,7 +345,7 @@ function RaidUtility.GetGroupMembers()
         for _, unit in ipairs(units) do
             if UnitExists(unit) then
                 local name = GetUnitName(unit, true)
-                if name then AddMember(unit, nil, name, 1) end
+                if name then AddMember(unit, nil, name, 1, UnitIsConnected(unit)) end
             end
         end
     end
@@ -256,14 +354,14 @@ end
 
 -- Your role from your current spec, or nil. Your own spec is always known, unlike other players'.
 function RaidUtility.PlayerSpecRole()
-    local spec = GetSpecialization and GetSpecialization()
+    local spec = GetSpecialization()
     local role = spec and GetSpecializationRole(spec)
     if role == "TANK" or role == "HEALER" or role == "DAMAGER" then return role end
 end
 
 -- Your current spec ID, or nil
 function RaidUtility.PlayerSpecID()
-    local spec = GetSpecialization and GetSpecialization()
+    local spec = GetSpecialization()
     local specID = spec and GetSpecializationInfo(spec)
     if type(specID) == "number" and specID > 0 then return specID end
 end
@@ -378,17 +476,34 @@ function RaidUtility:FillFromRaid(roster)
     return true
 end
 
-function RaidUtility:InviteMissing(roster)
-    roster = roster or self:GetActive()
-    local members, list, ambiguous = self.GetGroupMembers(), {}, {}
+-- Who Invite missing would invite (entries not in the group), and entries too ambiguous to tell
+function RaidUtility:MissingInvites(roster, members)
+    members = members or self.GetGroupMembers()
+    local list, ambiguous = {}, {}
     self.ForEachEntry(roster, function(_, _, entry)
         local member, reason = self:ResolveGroupMember(entry, members)
         if reason == "ambiguous" then
             ambiguous[#ambiguous + 1] = entry
         elseif not member then
+            -- a nickname of someone outside the group: invite their character, not the nickname
+            local char, realm = NSRT.GetChar(entry)
+            if char and char:lower() ~= entry:lower() then
+                entry = (realm and realm ~= "" and not char:find("-", 1, true)) and (char .. "-" .. realm) or char
+            end
             list[#list + 1] = entry
         end
     end)
+    return list, ambiguous
+end
+
+function RaidUtility:InviteMissing(roster)
+    -- names can be hidden in combat, so raid members would look missing and be invited again
+    if InCombatLockdown() then
+        Print(L["Can't check who is missing in combat."])
+        return
+    end
+    roster = roster or self:GetActive()
+    local list, ambiguous = self:MissingInvites(roster)
     ReportAmbiguous(ambiguous)
     if #list == 0 then
         if #ambiguous == 0 then Print(L["Everyone on the roster is already in the group."]) end
@@ -420,7 +535,7 @@ local function CheckArrange()
     if state == "running" and not watch.expired then return end
     watch.timeout:Cancel()
     RaidUtility.arrangeWatch = nil
-    Print(state == "done" and L["Groups arranged."] or L["Group sorting stopped before it finished."])
+    Print(state == "done" and L["Groups sorted."] or L["Group sorting stopped before it finished."])
 end
 
 -- NSRT moves the next player on each GROUP_ROSTER_UPDATE; look one frame later, after its handler has run
@@ -448,6 +563,10 @@ local function CanArrangeLive(self, now)
     end
     if not IsInRaid() then
         Print(L["You are not in a raid."])
+        return
+    end
+    if InCombatLockdown() then -- moving raid members is protected in combat
+        Print(L["Can't move players in combat."])
         return
     end
     if not (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")) then
@@ -519,8 +638,8 @@ function RaidUtility:Arrange(rosterName, roster)
         Print(L["Preview: %d player(s) would move. Nothing was sent to the game."]:format(moved))
         return
     end
+    if not NSRT.StartSort(units) then return end -- NSRT's sorter failed and said so; no cooldown for a retry
     self.lastArrange = now
-    NSRT.StartSort(units)
     Print(L["Sorting groups..."])
     WatchArrange()
 end

@@ -2,6 +2,7 @@
 -- namespace and changes between releases; NSAPI is its public API. Look the namespace up on every call:
 -- the options UI (NorthernSkyRaidTools_UI) is load-on-demand and fills in NSUI later.
 local _, RaidUtility = ...
+local L = RaidUtility.L -- Locales.lua loads first
 local NSRT = {}
 RaidUtility.NSRT = NSRT
 
@@ -28,7 +29,7 @@ function NSRT.GetMenu()
     local NSUI = NSI and NSI.NSUI
     local menu = NSUI and NSUI.Initialized and NSUI.MenuFrame
     local components = NSI and NSI.UI and NSI.UI.Components
-    if menu and components then return menu, components, NSI end
+    if menu and components then return menu, components end
 end
 
 function NSRT.GetWindow()
@@ -36,18 +37,49 @@ function NSRT.GetWindow()
     return NSI and NSI.NSUI
 end
 
+-- NSRT has no plugin API and changes between releases, so every call into it goes through Call: a failure is
+-- reported in chat instead of a Lua error, and the error text goes to /nru debug. once: the call runs on every
+-- redraw, so report it a single time per session. Returns ok, then the function's results.
+local reported = {}
+local function Call(message, once, fn, ...)
+    local results = { n = select("#", ...) }
+    local function Keep(ok, ...)
+        results.n = select("#", ...)
+        for i = 1, results.n do
+            results[i] = select(i, ...)
+        end
+        return ok
+    end
+    local ok = Keep(pcall(fn, ...))
+    if not ok then
+        RaidUtility.Debug("NSRT error: " .. tostring(results[1]))
+        if message and not (once and reported[message]) then
+            reported[message] = true
+            RaidUtility.Print(message)
+        end
+        return false
+    end
+    return true, unpack(results, 1, results.n)
+end
+
 -- Loads the options UI addon. Returns ready (window built and safe to show), window (nil if loading failed).
 function NSRT.LoadWindow()
     local NSI = NSRT.Get()
     if not (NSI and NSI.LoadUI) then return false end
-    local ready = NSI:LoadUI(true)
+    local ok, ready = Call(nil, false, NSI.LoadUI, NSI, true) -- Core reports "could not be loaded"
+    if not ok then return false, nil end
     return ready and NSI.NSUI ~= nil, NSI.NSUI
 end
 
--- NSRT's own check for encounter restrictions (secret auras), which also blocks group sorting
+-- NSRT's own check for encounter restrictions (secret auras), which also blocks group sorting. If the check itself
+-- fails, sorting is refused: moving players during an encounter we can't detect is worse than not sorting.
 function NSRT.Restricted()
     local NSI = NSRT.Get()
-    return NSI and NSI.Restricted and NSI:Restricted() or false
+    if not (NSI and NSI.Restricted) then return false end
+    local message =
+        L["NSRT's encounter check failed, so groups won't be sorted. NSRT may have changed; check for an update."]
+    local ok, restricted = Call(message, false, NSI.Restricted, NSI)
+    return not ok or restricted == true
 end
 
 function NSRT.CanSort()
@@ -71,39 +103,47 @@ function NSRT.SortState()
     return g.ProcessStart and "done" or "stopped"
 end
 
--- units: NSRT's 40-slot layout. NSRT continues the sort on each GROUP_ROSTER_UPDATE.
+-- units: NSRT's 40-slot layout. NSRT continues the sort on each GROUP_ROSTER_UPDATE. Returns true if it started.
 function NSRT.StartSort(units)
     local NSI = NSRT.Get()
     NSI.Groups = { Processing = false, units = units, total = 40 }
     NSI.LastGroupSort = GetTime() -- share NSRT's spam guard with its own sort buttons
-    NSI:ArrangeGroups(true)
+    local message = L["NSRT's group sorter failed. NSRT may have changed; check for an update."]
+    if Call(message, false, NSI.ArrangeGroups, NSI, true) then return true end
+    NSI.Groups.Processing, NSI.Groups.ProcessStart = false, nil -- nothing is running
 end
 
--- Returns true when NSRT sent the invites
+-- Returns true when NSRT sent the invites (false: the caller invites one by one)
 function NSRT.InviteList(list)
     local NSI = NSRT.Get()
-    if NSI and NSI.InviteList then
-        NSI:InviteList(list)
-        return true
-    end
+    if not (NSI and NSI.InviteList) then return false end
+    local message = L["NSRT's invite failed, so the invites were sent one by one."]
+    return (Call(message, false, NSI.InviteList, NSI, list))
 end
 
--- Character for an NSRT nickname: name, realm (realm may be nil)
+-- Character for an NSRT nickname: name, realm (realm may be nil). Runs on every redraw for names that don't match a
+-- group member, so a failure is reported once and nicknames are skipped.
 function NSRT.GetChar(nickname)
-    if NSAPI and NSAPI.GetChar then return NSAPI:GetChar(nickname, true, "GlobalNickNames") end
+    if not (NSAPI and NSAPI.GetChar) then return end
+    local message = L["NSRT's nickname lookup failed, so nicknames aren't matched. NSRT may have changed."]
+    local ok, name, realm = Call(message, true, NSAPI.GetChar, NSAPI, nickname, true, "GlobalNickNames")
+    if ok then return name, realm end
 end
 
 -- Role from the spec NSRT has seen for this unit (via LibSpecialization), or nil
--- Spec ID NSRT has seen for a unit (its own spec cache), or nil
+-- Spec ID NSRT has seen for a unit (its own spec cache), or nil. Read on every redraw, so a failure is reported
+-- once rather than on every refresh.
 function NSRT.GetSpecID(unit)
     local NSI = NSRT.Get()
-    local specID = NSI and NSI.GetSpecs and NSI:GetSpecs(unit)
-    if type(specID) == "number" and specID > 0 then return specID end
+    if not (NSI and NSI.GetSpecs) then return end
+    local message = L["Couldn't read NSRT's spec cache, so roles and specs from NSRT are skipped."]
+    local ok, specID = Call(message, true, NSI.GetSpecs, NSI, unit)
+    if ok and type(specID) == "number" and specID > 0 then return specID end
 end
 
 function NSRT.GetSpecRole(unit)
     local specID = NSRT.GetSpecID(unit)
-    if specID and GetSpecializationInfoByID then
+    if specID then
         local role = select(5, GetSpecializationInfoByID(specID))
         if role == "TANK" or role == "HEALER" or role == "DAMAGER" then return role end
     end

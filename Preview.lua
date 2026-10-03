@@ -81,6 +81,7 @@ function Preview.Members()
         class = class,
         role = role,
         subgroup = groups[1],
+        online = true,
         previewDps = role == "HEALER" and 50000 or 800000,
         previewHps = role == "HEALER" and 390000 or nil,
     })
@@ -93,6 +94,7 @@ function Preview.Members()
             class = e[3],
             role = e[4],
             subgroup = groups[i],
+            online = true,
             previewDps = e[5],
             previewHps = e[6],
             specID = e[7],
@@ -146,7 +148,7 @@ function Preview.Start(newSize)
     end
     active = true
     RaidUtility.Print(
-        L["Preview raid on (%d players). Arrange and Invite only report what they would do."]:format(size)
+        L["Preview raid on (%d players). Sort groups and Invite only report what they would do."]:format(size)
     )
     Refresh()
     return true

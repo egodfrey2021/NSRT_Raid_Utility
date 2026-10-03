@@ -19,17 +19,17 @@ read_globals = {
     -- Frames and UI
     "CreateFrame", "UIParent", "GetCursorPosition", "StaticPopup_Show", "RAID_CLASS_COLORS",
     "INLINE_TANK_ICON", "INLINE_HEALER_ICON", "INLINE_DAMAGER_ICON",
-    "ACCEPT", "CANCEL", "YES", "NO", "GameTooltip",
+    "ACCEPT", "CANCEL", "YES", "NO", "GameTooltip", "GameFontHighlightSmall",
     -- Group and unit API
     "IsInGroup", "IsInRaid", "GetNumGroupMembers", "GetRaidRosterInfo", "GetUnitName", "UnitFullName",
     "UnitClass", "UnitExists", "UnitGroupRolesAssigned", "UnitIsGroupAssistant", "UnitIsGroupLeader",
     "GetNormalizedRealmName", "Ambiguate", "C_PartyInfo", "UnitGUID", "UnitName", "UnitAffectingCombat",
-    "GetSpecializationInfoByID", "GetSpecialization", "GetSpecializationRole",
+    "GetSpecializationInfoByID", "GetSpecialization", "GetSpecializationRole", "GetInspectSpecialization",
     "GetSpecializationInfoForClassID", "GetNumClasses", "C_SpecializationInfo", "GetSpecializationInfo",
     -- Misc API
     "GetTime", "InCombatLockdown", "Enum", "C_DamageMeter", "C_Timer", "issecretvalue", "canaccessvalue",
     "UnitIsUnit", "WoWUnit",   -- WoWUnit: dev-only in-game test runner (tests/ingame.lua)
-    "ScrollUtil", "GetLocale", "IsShiftKeyDown", "date",
+    "ScrollUtil", "GetLocale", "IsShiftKeyDown", "date", "GetFileIDFromPath", "UnitIsConnected", "GetInstanceInfo", "C_ChatInfo", "LE_PARTY_CATEGORY_INSTANCE",
     -- Northern Sky Raid Tools public API
     "NSAPI",
 }

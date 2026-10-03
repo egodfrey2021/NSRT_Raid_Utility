@@ -76,13 +76,26 @@ function strsplit(separator, text)
     return text
 end
 function IsInRaid() return H.raid end
-function IsInGroup() return H.raid or H.party end
+-- category LE_PARTY_CATEGORY_INSTANCE asks about a group finder group (H.instance)
+function IsInGroup(category)
+    if category == LE_PARTY_CATEGORY_INSTANCE then return H.instance == true end
+    return H.raid or H.party
+end
 function GetNumGroupMembers() return #H.group end
 function GetRaidRosterInfo(i)
     local member = H.raid and H.group[i]
-    if member then return member.display, nil, member.subgroup or 1, nil, nil, member.class or "MAGE" end
+    if member then
+        return member.display, nil, member.subgroup or 1, nil, nil, member.class or "MAGE", nil, not member.offline
+    end
 end
 function UnitExists(unit) return UnitMember(unit) ~= nil end
+-- where you are: H.instanceType ("raid", ...) and H.difficulty (16 = Mythic raid); nowhere by default
+function GetInstanceInfo() return "Somewhere", H.instanceType or "none", H.difficulty or 0 end
+function UnitIsConnected(unit)
+    local member = UnitMember(unit)
+    return member ~= nil and not member.offline
+end
+function UnitIsUnit(unit1, unit2) return UnitMember(unit1) == UnitMember(unit2) end
 function GetUnitName(unit, full)
     local member = UnitMember(unit)
     if member then return full and member.name .. "-" .. member.realm or member.name end
@@ -110,7 +123,7 @@ function UnitGroupRolesAssigned(unit) return UnitMember(unit).role end
 function UnitClass(unit)
     local member = UnitMember(unit)
     local class = member and member.class or "MAGE"
-    return class:sub(1, 1) .. class:sub(2):lower(), class
+    return class:sub(1, 1) .. class:sub(2):lower(), class, member and member.classID or 8
 end
 function UnitIsGroupLeader() return true end
 function UnitIsGroupAssistant() return false end
@@ -120,8 +133,50 @@ function IsShiftKeyDown() return H.shift end
 function GetTime() return H.now end
 function InCombatLockdown() return H.inCombat end
 function issecretvalue(v) return H.secret ~= nil and H.secret[v] == true end
+function canaccessvalue(v) return not issecretvalue(v) end
+
+-- Specs. Yours: H.spec = { id, role } (nil: no spec). The game's spec list is one class with two specs, whose icons
+-- the damage meter import maps to roles: icon 111 = a healer, 222 = damage.
+function GetSpecialization() return H.spec and 1 or nil end
+function GetSpecializationRole() return H.spec and H.spec.role end
+function GetSpecializationInfo() return H.spec and H.spec.id end
+-- GetSpecializationInfoByID: the one place it's set (no argument: knows no specs)
+function H.SetSpecInfo(fn)
+    _G.GetSpecializationInfoByID = fn or function() end
+end
+H.SetSpecInfo()
+function GetNumClasses() return 1 end
+C_SpecializationInfo = { GetNumSpecializationsForClassID = function() return 2 end }
+function GetSpecializationInfoForClassID(_, index)
+    if index == 1 then return 105, "Restoration", "", 111, "HEALER" end -- real spec IDs: Restoration Druid,
+    return 63, "Fire", "", 222, "DAMAGER" -- Fire Mage (PI's data is keyed by them)
+end
+
+-- The damage meter. Overall and Current sessions come from H.SetMeter; stored sessions from H.SetStoredSessions.
+Enum = { DamageMeterSessionType = { Overall = 1, Current = 2 }, DamageMeterType = { DamageDone = 2, HealingDone = 3 } }
+C_DamageMeter = {}
 function print(text) H.messages[#H.messages + 1] = text end
 C_PartyInfo = { InviteUnit = function(name) H.invitations[#H.invitations + 1] = name end }
+-- chat posts land in H.chat as { text, channel }
+H.chat = {}
+C_ChatInfo = {
+    SendChatMessage = function(text, channel) H.chat[#H.chat + 1] = { text = text, channel = channel } end,
+    InChatMessagingLockdown = function() return H.chatLockdown == true end,
+}
+LE_PARTY_CATEGORY_INSTANCE = 2
+-- the tooltip records what it would show (H.tooltip)
+GameTooltip = {
+    SetOwner = function() end,
+    SetText = function(_, text) H.tooltip = text end,
+    Show = function() end,
+    Hide = function() end,
+}
+-- hovers a frame the way the game would, returning the tooltip text
+function H.Hover(frame)
+    H.tooltip = nil
+    frame.scripts.OnEnter(frame)
+    return H.tooltip
+end
 
 -- ------------------------------------------------------------
 -- C_Timer: nothing fires until a test calls H.RunTimers()
@@ -231,10 +286,23 @@ function H.Frame(parent)
         if not wasVisible and self.scripts.OnShow then self.scripts.OnShow(self) end
     end
     function f:Hide() self.visible = false end
+    function f:SetShown(shown)
+        if shown then
+            self:Show()
+        else
+            self:Hide()
+        end
+    end
     function f:SetSize(w, h)
         self.width, self.height = w, h
     end
     function f:GetSize() return self.width, self.height end
+    function f:SetHeight(height) self.height = height end
+    function f:GetHeight() return self.height end
+    function f:GetNumLines()
+        local _, lines = (self.text or ""):gsub("\n", "")
+        return lines + 1
+    end
     function f:CreateFontString() return H.Frame(self) end
     function f:CreateTexture() return H.Frame(self) end
     function f:GetFrameLevel() return 1 end
@@ -268,6 +336,7 @@ function StaticPopup_Show(which, text, _, data) H.popup = { which = which, text 
 ACCEPT, CANCEL, YES, NO = "Accept", "Cancel", "Yes", "No"
 INLINE_TANK_ICON, INLINE_HEALER_ICON, INLINE_DAMAGER_ICON = "[T]", "[H]", "[D]"
 RAID_CLASS_COLORS = { MAGE = { r = 0, g = 0, b = 1 }, PRIEST = { r = 1, g = 1, b = 1 } }
+GameFontHighlightSmall = H.Frame()
 SlashCmdList = {}
 date = os.date
 -- MinimalScrollBar + ScrollUtil: records the scroll frame the bar was attached to
@@ -276,6 +345,29 @@ ScrollUtil = {
         bar.scroll, scroll.bar = scroll, bar
     end,
 }
+
+-- Clicks the Split setup panel control with this exact label, as a player would
+function H.Choose(label)
+    local setup = H.utility.ui.setup
+    for _, control in ipairs(setup.controls) do
+        if setup.meta[control].label == label then return control:Click() end
+    end
+    error("no split setup control " .. label)
+end
+
+-- Swaps the damage meter stub (the one assignment site, so the editor doesn't see several definitions)
+function H.SetMeter(fn) C_DamageMeter.GetCombatSessionFromType = fn end
+H.SetMeter(function() end) -- no sessions until a test sets some
+
+-- The stored-session API used by "last fight"; no arguments: no stored sessions
+function H.SetStoredSessions(list, fetch)
+    C_DamageMeter.GetAvailableCombatSessions = list or function() return {} end
+    C_DamageMeter.GetCombatSessionFromID = fetch or function() end
+end
+H.SetStoredSessions()
+
+-- NSRT's widget library, as Core hands it to BuildRosterTab (H.NSRTWindow sets it up)
+function H.Components() return _G.NorthernSkyRaidTools.UI.Components end
 
 -- The frame Core.lua listens for events on
 function H.EventFrame()

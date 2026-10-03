@@ -2,15 +2,8 @@
 local H = ...
 local utility, Member, test = H.utility, H.Member, H.test
 
-Enum = { DamageMeterSessionType = { Overall = 1 }, DamageMeterType = { DamageDone = 2, HealingDone = 3 } }
-C_DamageMeter = {}
-
--- Swaps the meter stub (one assignment site, so the editor doesn't see six definitions of the same field)
-local function SetMeter(fn) C_DamageMeter.GetCombatSessionFromType = fn end
--- The stored-session API used by "last fight" (nil, nil to remove it again)
-local function SetStoredSessions(list, fetch)
-    C_DamageMeter.GetAvailableCombatSessions, C_DamageMeter.GetCombatSessionFromID = list, fetch
-end
+local SetMeter = H.SetMeter
+local SetStoredSessions = H.SetStoredSessions
 
 local function Twins() H.SetRaid({ Member("Twin", "Home"), Member("Twin", "Away", "Twin-Away") }) end
 
@@ -83,10 +76,10 @@ test("spec role fills in a missing role and the rest are counted", function()
     DamageMeter({})
     local NSI = _G.NorthernSkyRaidTools
     NSI.GetSpecs = function(_, unit) return unit == "raid1" and 73 or nil end
-    local old = _G.GetSpecializationInfoByID
-    _G.GetSpecializationInfoByID = function() return 73, "Protection", "", 0, "TANK" end
+    H.SetSpecInfo(function() return 73, "Protection", "", 0, "TANK" end)
     local players, _, noRole = utility:GetSplitPlayers()
-    NSI.GetSpecs, _G.GetSpecializationInfoByID = nil, old
+    NSI.GetSpecs = nil
+    H.SetSpecInfo()
     assert(players[1].role == "TANK" and not players[1].assumedRole, "spec role not used")
     assert(players[2].role == "DAMAGER" and players[2].assumedRole, "role-less player not marked")
     assert(players[3].role == "DAMAGER" and not players[3].assumedRole)
@@ -127,7 +120,7 @@ local function SplitRaid()
     DamageMeter({ Src("Ann", 1500), Src("Cid", 1000), Src("Dee", 500) })
     H.NSRTWindow()
     utility:LoadDraft()
-    utility:BuildRosterTab(H.Frame(), _G.NorthernSkyRaidTools)
+    utility:BuildRosterTab(H.Frame(), H.Components())
     H.popup = nil
 end
 
@@ -180,31 +173,49 @@ test("Generate split makes a new roster when the toggle is on", function()
     utility:LoadDraft()
 end)
 
-test("with the toggle off, Generate split replaces the draft after confirming unsaved edits", function()
+test("with the toggle off, Generate split replaces the open roster at once, and Undo brings it back", function()
     SplitRaid()
     utility.db.splitToNewRoster = false
     local active = utility.db.active
     utility.draft[1][1] = "Old"
     utility:MarkDirty()
+    H.popup = nil
     utility:GenerateSplit()
-    assert(H.popup and H.popup.which == "NSRTRAIDUTILITY_DISCARD", "unsaved edits not confirmed")
-    assert(utility.draft[1][1] == "Old", "draft replaced before confirmation")
-    H.popup.data()
+    assert(not H.popup, "no prompt: Undo covers a split into the open roster")
     assert(DraftNames() == "Ann,Bob,Cid,Dee" and utility.dirty, DraftNames())
+    utility:Undo()
+    assert(utility.draft[1][1] == "Old", "Undo did not bring back the edits the split replaced")
     assert(utility.db.active == active and utility.db.rosters[active][1][1] ~= "Ann", "saved roster was changed")
     utility.db.splitToNewRoster = true
     utility:LoadDraft()
 end)
 
-test("the As new roster checkbox saves its setting", function()
+test("the split setup panel opens from Split raid and its As new roster checkbox saves its setting", function()
     SplitRaid()
-    utility.db.splitToNewRoster = true
-    local box = utility.ui.splitTarget
-    assert(box:GetValue() == true)
-    box:Click()
+    local ui = utility.ui
+    assert(not ui.setup:IsShown(), "the setup panel should start closed")
+    utility.db.splitToNewRoster = true -- the panel reads the settings when it opens
+    ui.splitButton.onClick()
+    assert(ui.setup:IsShown(), "Split raid... did not open the setup panel")
+    H.Choose("As new roster")
     assert(utility.db.splitToNewRoster == false, "unchecking was not saved")
-    box:Click()
+    H.Choose("As new roster")
     assert(utility.db.splitToNewRoster == true)
+    -- picking one of a group behaves like radio buttons: the others are unchecked
+    H.Choose("Last fight")
+    for _, control in ipairs(ui.setup.controls) do
+        local meta = ui.setup.meta[control]
+        if meta.key == "splitMeterSource" then
+            assert(control:GetValue() == (meta.choice == "lastfight"), "radio group out of step")
+        end
+    end
+    H.Choose("Overall session")
+    -- Generate split in the panel closes it and runs the split
+    local generate, ran = utility.GenerateSplit, false
+    utility.GenerateSplit = function() ran = true end
+    ui.generateButton.onClick()
+    utility.GenerateSplit = generate
+    assert(ran and not ui.setup:IsShown(), "Generate split should run and close the panel")
 end)
 
 test("groups map to sides for both layouts, matching SplitToRoster", function()
@@ -271,10 +282,14 @@ test("the balance strip compares the draft's sides", function()
     assert(not ui.sideText[1].text:find("DPS"), "DPS shown without meter data")
     assert(ui.groupSlots[1].amount.text == "", "number shown without meter data")
     assert(ui.balanceNote.text:find("No damage meter data"), ui.balanceNote.text)
+    -- out of a raid the strip stays while there are players on the roster (planning), and goes with an empty one
     H.SetParty({ Member("Ann", "Home") })
     utility:RefreshUI()
-    assert(not ui.balance.visible, "strip shown outside a raid")
-    assert(not ui.headers[1].text:find("A", 1, true), "side marker shown outside a raid")
+    assert(ui.balance.visible, "a roster with players should keep its side totals out of a raid")
+    utility.draft = utility.NewRoster()
+    utility:RefreshUI()
+    assert(not ui.balance.visible, "an empty roster out of a raid has nothing to total")
+    assert(not ui.headers[1].text:find("A", 1, true), "side marker shown with nothing to split")
     utility:LoadDraft()
 end)
 
@@ -304,13 +319,7 @@ end
 
 test("From damage meter fills empty slots with everyone the meter saw, by role and value", function()
     SplitRaid()
-    local spec = { _G.GetNumClasses, _G.C_SpecializationInfo, _G.GetSpecializationInfoForClassID }
-    _G.GetNumClasses = function() return 1 end
-    _G.C_SpecializationInfo = { GetNumSpecializationsForClassID = function() return 2 end }
-    _G.GetSpecializationInfoForClassID = function(_, i)
-        if i == 1 then return 1, "Restoration", "", 111, "HEALER" end
-        return 2, "Fire", "", 222, "DAMAGER"
-    end
+    -- the harness's spec list maps icon 111 to a healer
     local gone = Src("Gone-Away", 300, "Player-Gone-Away")
     gone.specIconID, gone.classFilename = 111, "PRIEST" -- left the group; a healer by spec
     Meter({ Src("Ann", 1500), Src("Cid", 1000), Src("Wolf", 900, "Creature-0-1-2-3-4-5"), gone }, {
@@ -321,7 +330,6 @@ test("From damage meter fills empty slots with everyone the meter saw, by role a
     utility.draft[1][1], utility.draft[1][2] = "Cid", "Keep"
     utility.dirty = false
     utility:ImportFromMeter()
-    _G.GetNumClasses, _G.C_SpecializationInfo, _G.GetSpecializationInfoForClassID = spec[1], spec[2], spec[3]
     local d = utility.draft
     assert(d[1][1] == "Cid" and d[1][2] == "Keep", "existing placements moved")
     assert(d[1][3] == "Ann", "tank not first: " .. d[1][3])
@@ -331,7 +339,7 @@ test("From damage meter fills empty slots with everyone the meter saw, by role a
     -- a typed name of someone who left still gets their number, and stays tagged as not in the group
     local slot = utility.ui.groupSlots[4]
     assert(
-        slot.amount.text == "5.0K" and slot.text.text:find("not in group"),
+        slot.amount.text == "5.0K" and slot.tooltip and slot.tooltip:find("Not in your group", 1, true),
         slot.amount.text .. " " .. slot.text.text
     )
     utility:ImportFromMeter()
@@ -379,19 +387,26 @@ test("a split writes Name-Realm for players who share a name, so every entry res
     utility:LoadDraft()
 end)
 
-test("split notes print only once the split is applied", function()
+test("split notes print only once the split is applied (a new roster asks first: Undo can't cross rosters)", function()
     SplitRaid()
     H.SetRaid({ Member("Ann", "Home", nil, "TANK"), Member("Nobody", "Home", nil, "NONE") })
-    utility.db.splitToNewRoster = false
+    utility.db.splitToNewRoster = true
+    local active = utility.db.active
     utility.draft[1][1] = "Edited"
     utility:MarkDirty()
     local before = #H.messages
     utility:GenerateSplit()
+    assert(H.popup and H.popup.which == "NSRTRAIDUTILITY_DISCARD", "opening a new roster should still ask")
     assert(#H.messages == before, "printed before the discard was confirmed: " .. H.LastMessage())
-    H.popup.data()
+    H.popup.data() -- discard: the naming popup comes next
+    StaticPopupDialogs.NSRTRAIDUTILITY_SAVE_SPLIT.OnAccept(
+        { EditBox = { GetText = function() return "Notes Split" end } },
+        H.popup.data
+    )
     local notes = table.concat(H.messages, "\n", before + 1)
-    assert(notes:find("1 player(s) have no role", 1, true) and notes:find("is in the draft", 1, true), notes)
-    utility.db.splitToNewRoster = true
+    assert(notes:find("1 player(s) have no role", 1, true) and notes:find("Notes Split", 1, true), notes)
+    utility:DeleteRoster("Notes Split")
+    utility.db.active = active
     utility:LoadDraft()
 end)
 
@@ -451,14 +466,15 @@ test("the Even melee/ranged option is saved, off by default, and shown on the st
     assert(utility.db.splitMeleeRanged == false, "option should start off")
     local ui = utility.ui
     assert(not ui.sideText[1].text:find("melee"), "melee counts shown with the option off")
-    ui.options:Pick("Even melee/ranged")
+    H.Choose("Even melee/ranged")
     assert(utility.db.splitMeleeRanged == true, "turning it on was not saved")
-    assert(ui.options.getSelected() == "Overall, melee/ranged", ui.options.getSelected())
+    assert(utility:SplitOptionsSummary() == "Overall, melee/ranged", utility:SplitOptionsSummary())
+    assert(ui.summary.text:find("Overall, melee/ranged", 1, true), ui.summary.text)
     utility.draft = utility.NewRoster()
     utility.draft[1][1], utility.draft[1][2] = "Ann", "Cid" -- Ann tanks (not counted); Cid is a mage: ranged
     utility:RefreshUI()
     assert(ui.sideText[1].text:find("0 melee, 1 ranged", 1, true), ui.sideText[1].text)
-    ui.options:Pick("Even melee/ranged")
+    H.Choose("Even melee/ranged")
     assert(utility.db.splitMeleeRanged == false)
     utility:LoadDraft()
 end)
@@ -472,7 +488,7 @@ test("Generate split with Even melee/ranged notes players whose spec wasn't seen
     local before = #H.messages
     utility:GenerateSplit()
     local notes = table.concat(H.messages, "\n", before + 1)
-    assert(notes:find("1 player(s) have a spec that hasn't been seen yet", 1, true), notes)
+    assert(notes:find("1 player(s) with an unknown spec", 1, true), notes)
     -- the two damage dealers, one melee and one ranged, end up on different sides
     local sideOf = utility.GroupSides(utility.draft, utility.db.splitLayout)
     local where = {}
@@ -485,7 +501,7 @@ test("Generate split with Even melee/ranged notes players whose spec wasn't seen
     utility.db.splitToNewRoster = false
     utility:GenerateSplit()
     notes = table.concat(H.messages, "\n", before + 1)
-    assert(not notes:find("hasn't been seen", 1, true), "spec note shown with the option off")
+    assert(not notes:find("unknown spec", 1, true), "spec note shown with the option off")
     utility.db.splitToNewRoster = true
     utility:LoadDraft()
 end)
@@ -603,7 +619,8 @@ test("pins are draft edits: Revert drops them, Save keeps them, a split's new ro
     ui.groupSlots[1].scripts.OnClick(ui.groupSlots[1], "RightButton")
     H.shift = false
     assert(utility.draftPins["ann-home"] == 1 and utility.dirty, "shift-right-click did not pin to side A")
-    assert(ui.groupSlots[1].text.text:find("[A]", 1, true), ui.groupSlots[1].text.text)
+    assert(ui.groupSlots[1].pinBar.visible, "no pin marker")
+    assert(ui.groupSlots[1].tooltip:find("Pinned to side A", 1, true), tostring(ui.groupSlots[1].tooltip))
     assert(utility.draft[1][1] == "Ann", "pinning cleared the slot")
     utility:LoadDraft()
     assert(not utility.draftPins["ann-home"], "Revert kept the pin")
@@ -649,15 +666,15 @@ test("meter source: last fight reads the Current session, roles only ignores the
         local value = sessionType == 2 and 7000 or 1500
         return { combatSources = { Src("Ann", value) } }
     end)
-    Enum.DamageMeterSessionType.Current = 2 -- Overall is 1 in this suite
     utility.draft = utility.NewRoster()
     utility.draft[1][1] = "Ann"
     local ui = utility.ui
-    ui.options:Pick("Balance on the last fight")
+    H.Choose("Last fight")
     assert(utility.db.splitMeterSource == "lastfight" and asked == 2, "Current session not read")
     assert(ui.groupSlots[1].amount.text == "7.0K", ui.groupSlots[1].amount.text)
-    assert(ui.options.getSelected():find("^Last fight"), ui.options.getSelected())
-    ui.options:Pick("Balance on roles only")
+    assert(utility:SplitOptionsSummary():find("^Last fight"), utility:SplitOptionsSummary())
+    assert(ui.caption.text:find("last fight", 1, true), ui.caption.text)
+    H.Choose("Roles only")
     assert(ui.groupSlots[1].amount.text == "1.5K", "roles only should still show Overall numbers")
     assert(ui.balanceNote.text:find("roles only", 1, true), ui.balanceNote.text)
     utility.db.splitToNewRoster = false
@@ -665,7 +682,8 @@ test("meter source: last fight reads the Current session, roles only ignores the
     utility:GenerateSplit()
     local notes = table.concat(H.messages, "\n", before + 1)
     assert(notes:find("Balanced by roles only", 1, true), notes)
-    ui.options:Pick("Balance on the Overall session")
+    assert(ui.caption.text:find("ignores them", 1, true), ui.caption.text)
+    H.Choose("Overall session")
     utility.db.splitToNewRoster = true
     utility:LoadDraft()
 end)
@@ -683,7 +701,7 @@ test("last fight falls back to the newest stored session once Current is empty",
     utility.draft[1][1] = "Ann"
     utility:RefreshUI(true)
     utility.db.splitMeterSource = "overall"
-    SetStoredSessions(nil, nil)
+    SetStoredSessions()
     assert(fetched == 9, "did not read the newest session")
     assert(utility.ui.groupSlots[1].amount.text == "4.2K", utility.ui.groupSlots[1].amount.text)
     utility:LoadDraft()
@@ -698,7 +716,7 @@ test("the strip lists what each side is missing when the options are on", functi
     utility.draft[1][1], utility.draft[1][2], utility.draft[1][3] = "Ann", "Cid", "Dee" -- all on side A
     utility.draft[2][1] = "Bob"
     utility:RefreshUI()
-    assert(utility.ui.missing.text == "Missing on B: Bloodlust.", utility.ui.missing.text)
+    assert(utility.ui.missing.text == "Missing on B: lust.", utility.ui.missing.text)
     utility.db.splitLustRez = false
     utility:RefreshUI()
     assert(utility.ui.missing.text == "", "shortfall shown with the option off")
@@ -745,7 +763,6 @@ test("a pin works however the slot names the player (short name for a cross-real
     assert(utility.draftPins["kaelin-draenor"] == 2, "pin not stored for the player")
     utility.db.splitToNewRoster = false
     utility:GenerateSplit()
-    H.popup.data() -- pinning is an unsaved edit, so the split asks before replacing the draft
     local sideOf = utility.GroupSides(utility.draft, utility.db.splitLayout)
     local found
     utility.ForEachEntry(utility.draft, function(g, _, entry)
@@ -809,9 +826,150 @@ test("Generate split with most damage says where the lone Demon Hunter went", fu
     utility:GenerateSplit()
     local notes = table.concat(H.messages, "\n", before + 1)
     assert(notes:find("Chaos Brand is on side", 1, true), notes)
-    assert(utility.ui.options.getSelected():find("buffs (most damage)", 1, true), utility.ui.options.getSelected())
-    utility.ui.options:Pick("Raid buffs: ignore")
+    assert(utility:SplitOptionsSummary():find("buffs (most damage)", 1, true), utility:SplitOptionsSummary())
+    H.Choose("Ignore")
     assert(utility.db.splitBuffs == "off")
     utility.db.splitToNewRoster = true
+    utility:LoadDraft()
+end)
+
+test("a draft from Generate split is marked as a split; Fill, Clear and new rosters are not", function()
+    SplitRaid()
+    utility.db.splitToNewRoster = false
+    utility.dirty = false
+    utility:GenerateSplit()
+    assert(utility.draftSplit, "a split draft should be marked")
+    local active = utility.db.active
+    utility:SaveDraft()
+    assert(utility.db.splitRosters[active], "Save should keep the mark")
+    utility:LoadDraft()
+    assert(utility.draftSplit, "the mark should come back with the roster")
+    utility.ui.fillButton.onClick()
+    assert(not utility.draftSplit, "Fill from raid replaces the split")
+    utility:SaveDraft()
+    assert(not utility.db.splitRosters[active], "Save should clear the mark")
+    -- a split saved as a new roster is marked too, and a deleted roster drops it
+    utility.db.splitToNewRoster = true
+    utility:GenerateSplit()
+    StaticPopupDialogs.NSRTRAIDUTILITY_SAVE_SPLIT.OnAccept(
+        { EditBox = { GetText = function() return "Marked Split" end } },
+        H.popup.data
+    )
+    assert(utility.draftSplit and utility.db.splitRosters["Marked Split"], "new split roster not marked")
+    utility:DeleteRoster("Marked Split")
+    assert(utility.db.splitRosters["Marked Split"] == nil, "mark left behind by a deleted roster")
+    utility.db.active = active
+    utility:LoadDraft()
+end)
+
+test("Groups 1-4 only: on by default in a Mythic raid, and the player's choice wins", function()
+    utility.db.splitGroups14 = nil
+    H.instanceType, H.difficulty = "raid", 16
+    assert(utility:ActiveGroupsOnly() and utility:MaxGroup() == 4, "should be on in a Mythic raid")
+    H.difficulty = 15
+    assert(not utility:ActiveGroupsOnly(), "should be off in Heroic")
+    utility.db.splitGroups14 = true
+    assert(utility:ActiveGroupsOnly(), "the player's choice should win outside Mythic")
+    H.difficulty = 16
+    utility.db.splitGroups14 = false
+    assert(not utility:ActiveGroupsOnly(), "the player's choice should win in Mythic")
+    utility.db.splitGroups14, H.instanceType, H.difficulty = nil, nil, nil
+end)
+
+test("a Mythic split leaves offline and benched players out but keeps them in groups that don't fight", function()
+    SplitRaid()
+    H.SetRaid({
+        Member("Ann", "Home", nil, "TANK"),
+        Member("Bob", "Home", nil, "HEALER"),
+        Member("Cid", "Home"),
+        Member("Dee", "Home"),
+        Member("Bench", "Home"),
+        Member("Gone", "Home"),
+    })
+    H.group[5].subgroup = 5 -- sitting out
+    H.group[6].offline = true -- in group 1, but offline
+    H.instanceType, H.difficulty = "raid", 16
+    utility.db.splitToNewRoster, utility.db.splitLayout = false, "oddeven"
+    utility.dirty = false
+    local before = #H.messages
+    utility:GenerateSplit()
+    local notes = table.concat(H.messages, "\n", before + 1)
+    local where = {}
+    utility.ForEachEntry(utility.draft, function(g, _, entry) where[entry] = g end)
+    for _, name in ipairs({ "Ann", "Bob", "Cid", "Dee" }) do
+        assert(where[name] and where[name] <= 4, name .. " should be in an active group")
+    end
+    assert(where.Bench == 5, "the benched player should keep group 5, got " .. tostring(where.Bench))
+    assert(where.Gone and where.Gone > 4, "the offline player should sit out, got " .. tostring(where.Gone))
+    assert(notes:find("1 offline player(s) were left out", 1, true), notes)
+    assert(notes:find("1 player(s) sitting out in groups 5-8", 1, true), notes)
+    -- the strip and headers ignore groups 5-8: no side letter there
+    utility:RefreshUI()
+    assert(not utility.ui.headers[5].text:find("[AB]|r$"), utility.ui.headers[5].text)
+    assert(utility.ui.summary.text:find("groups 1-4", 1, true), utility.ui.summary.text)
+    utility.db.splitToNewRoster, H.instanceType, H.difficulty = true, nil, nil
+    utility:LoadDraft()
+end)
+
+test("solo, players imported from the meter show their class and role, and the roster splits on meter data", function()
+    SplitRaid()
+    H.raid, H.party, H.group = false, false, {}
+    local function Seen(name, value, icon, class)
+        local src = Src(name, value, "Player-" .. name .. "-Home")
+        src.specIconID, src.classFilename = icon, class
+        return src
+    end
+    -- icon 111 = a healer, 222 = damage (the harness's spec list); one player with no spec icon
+    SetMeter(function(_, meterType)
+        if meterType == 2 then
+            return {
+                combatSources = {
+                    Seen("Mage", 900, 222, "MAGE"),
+                    Seen("Lock", 700, 222, "WARLOCK"),
+                    Seen("Rogue", 800, 222, "ROGUE"),
+                    Seen("Druid", 50, 111, "DRUID"),
+                },
+            }
+        end
+        return { combatSources = { Seen("Druid", 600, 111, "DRUID"), Seen("Priest", 650, nil, "PRIEST") } }
+    end)
+    H.SetSpecInfo(function(id)
+        if id == 105 then return 105, "Restoration", "", 111, "HEALER" end
+    end)
+    utility.draft = utility.NewRoster()
+    utility:ResetUndo()
+    utility:ImportFromMeter()
+    utility:RefreshUI(true)
+    local ui = utility.ui
+    local function Slot(name)
+        for _, slot in ipairs(ui.groupSlots) do
+            if slot.value == name then return slot end
+        end
+    end
+    -- class color and role icon from the meter (MAGE is blue in the harness), spec in the tooltip
+    assert(Slot("Mage").text.text == "[D] Mage" and Slot("Mage").text.color[3] == 1, Slot("Mage").text.text)
+    assert(Slot("Druid").text.text == "[H] Druid", Slot("Druid").text.text)
+    assert(
+        rawget(Slot("Druid"), "tooltip"):find("Restoration, from the damage meter", 1, true),
+        "spec not in the tooltip"
+    )
+    -- the split works solo, on the roster's players
+    assert(ui.splitButton.enabled and ui.balance.visible, "split and side totals should be available solo")
+    utility.db.splitToNewRoster = false
+    local before = #H.messages
+    utility:GenerateSplit()
+    local notes = table.concat(H.messages, "\n", before + 1)
+    assert(notes:find("players on the roster were split", 1, true), notes)
+    local sideOf = utility.GroupSides(utility.draft, utility.db.splitLayout)
+    local healers = {}
+    utility.ForEachEntry(utility.draft, function(g, _, entry)
+        if entry == "Druid" or entry == "Priest" then healers[#healers + 1] = sideOf[g] end
+    end)
+    assert(#healers == 2 and healers[1] ~= healers[2], "the two healers the meter saw should be on different sides")
+    local a = tonumber(ui.sideText[1].text:match("(%d+) players"))
+    local b = tonumber(ui.sideText[2].text:match("(%d+) players"))
+    assert(a and b and a + b == 5, "side totals should count all five players from the meter")
+    utility.db.splitToNewRoster = true
+    H.SetSpecInfo()
     utility:LoadDraft()
 end)

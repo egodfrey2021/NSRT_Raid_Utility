@@ -3,7 +3,8 @@
 local _, RaidUtility = ...
 
 local L, Print = RaidUtility.L, RaidUtility.Print
-local ROLE_ICON, Short = RaidUtility.Widgets.ROLE_ICON, RaidUtility.Widgets.Short
+local Widgets = RaidUtility.Widgets
+local ROLE_ICON, Short, WHITE = Widgets.ROLE_ICON, Widgets.Short, Widgets.WHITE
 local SIDE = { "A", "B" }
 
 -- Notes about how the split was made, printed once it has actually been applied
@@ -16,8 +17,8 @@ end
 -- What a side is still short of, as a sentence
 local function ShortfallText(need)
     local side = SIDE[need.side]
-    if need.kind == "lust" then return L["Side %s has no Bloodlust."]:format(side) end
-    if need.kind == "rez" then return L["Side %s is short of battle rezzes."]:format(side) end
+    if need.kind == "lust" then return L["Side %s has no lust."]:format(side) end
+    if need.kind == "rez" then return L["Side %s is short a brez."]:format(side) end
     for _, buff in ipairs(RaidUtility.RAID_BUFFS) do
         if buff.class == need.key then return L["Side %1$s is missing %2$s."]:format(side, buff.name) end
     end
@@ -37,10 +38,10 @@ end
 
 -- data: { roster, notes, pins } from GenerateSplit
 local function AcceptSaveSplit(dialog, data)
-    local box = dialog.EditBox or dialog.editBox
+    local box = dialog.EditBox
     if not data then return end
     local name = RaidUtility.Trim(box and box:GetText() or "")
-    if not RaidUtility:CreateRoster(name, data.roster, data.pins) then return end
+    if not RaidUtility:CreateRoster(name, data.roster, data.pins, true) then return end
     PrintNotes(data.notes)
     Print(L["Saved the split as roster '%s'. Drag players to adjust it."]:format(name))
     RaidUtility:RefreshUI()
@@ -53,7 +54,7 @@ StaticPopupDialogs["NSRTRAIDUTILITY_SAVE_SPLIT"] = {
     hasEditBox = true,
     maxLetters = 40,
     OnShow = function(dialog)
-        local box = dialog.EditBox or dialog.editBox
+        local box = dialog.EditBox
         if box then
             box:SetText(L["Split %s"]:format(date("%b %d %H:%M")))
             box:SetFocus()
@@ -71,24 +72,84 @@ StaticPopupDialogs["NSRTRAIDUTILITY_SAVE_SPLIT"] = {
     hideOnEscape = true,
 }
 
+-- Players the split left out (offline, or sitting out in groups 5-8) stay on the roster, in their own group when
+-- the split left it free, else in the first free slot from group 8 down, so Sort groups doesn't pull them in
+function RaidUtility:KeepLeftOut(roster, leftOut, notes)
+    if #leftOut == 0 then return end
+    local members, used = self.GetGroupMembers(), {}
+    self.ForEachEntry(roster, function(g) used[g] = true end)
+    local function Free(g)
+        for s = 1, 5 do
+            if self.Trim(roster[g][s]) == "" then return s end
+        end
+    end
+    local offline, benched = 0, 0
+    for _, member in ipairs(leftOut) do
+        local g = member.subgroup or 8
+        local s = not used[g] and Free(g)
+        if not s then
+            for candidate = 8, 1, -1 do
+                s = not used[candidate] and Free(candidate)
+                if s then
+                    g = candidate
+                    break
+                end
+            end
+        end
+        if s then roster[g][s] = member.entry or self.EntryName(member, members) end
+        if member.online == false then
+            offline = offline + 1
+        else
+            benched = benched + 1
+        end
+    end
+    if offline > 0 then notes[#notes + 1] = L["%d offline player(s) were left out of the split."]:format(offline) end
+    if benched > 0 then
+        notes[#notes + 1] = L["%d player(s) sitting out in groups 5-8 were left out (Groups 1-4 only)."]:format(benched)
+    end
+end
+
 -- Balance the current raid into two sides and put the result in a new roster or the draft
 -- (db.splitToNewRoster). Both replace the draft, so unsaved edits are confirmed first.
+-- In a raid this splits the raid. Out of one (planning solo, e.g. after From damage meter) it splits the players on
+-- the roster, with class, spec, role and DPS/HPS from the damage meter.
 function RaidUtility:GenerateSplit()
-    if not self.InRaid() then
-        Print(L["You are not in a raid."])
+    local inRaid = self.InRaid()
+    if not inRaid and not self:HasEntries() then
+        Print(L["Join a raid, or put players on the roster, to split."])
         return
     end
     if InCombatLockdown() then
         Print(L["Can't read the damage meter in combat."])
         return
     end
-    local players, withData, noRole, meter, guessed = self:GetSplitPlayers()
-    if not players then
-        Print(withData)
-        return
+    local players, withData, noRole, meter, guessed, leftOut, unknown
+    if inRaid then
+        players, withData, noRole, meter, guessed, leftOut = self:GetSplitPlayers()
+        if not players then
+            Print(withData)
+            return
+        end
+    else
+        local members = self.GetGroupMembers()
+        local err
+        meter, err = self:ReadMeter(members)
+        if not meter then
+            Print(err)
+            return
+        end
+        players, withData, noRole, guessed, leftOut, unknown = self:GetRosterSplitPlayers(self.draft, members, meter)
     end
-    self.meter = meter -- the reading the split used, so the numbers on screen match it
+    self:SetMeterReading(meter) -- the reading the split used, so the numbers on screen match it
     local opts, notes = self:SplitOptions(), {}
+    if not inRaid then
+        notes[#notes + 1] = L["Not in a raid, so the players on the roster were split, as the damage meter saw them."]
+        if unknown > 0 then
+            local missing =
+                L["%d player(s) on the roster aren't on the damage meter and were counted as DPS with no data."]
+            notes[#notes + 1] = missing:format(unknown)
+        end
+    end
     if self.db.splitMeterSource == "roles" then
         for _, p in ipairs(players) do
             p.value, p.dps, p.hps = 0, 0, 0
@@ -97,15 +158,15 @@ function RaidUtility:GenerateSplit()
     elseif withData == 0 then
         notes[#notes + 1] = L["No damage meter data yet, so this split only balances roles."]
     end
-    if noRole > 0 then notes[#notes + 1] = L["%d player(s) have no role and were counted as damage."]:format(noRole) end
+    if noRole > 0 then notes[#notes + 1] = L["%d player(s) have no role and were counted as DPS."]:format(noRole) end
     if opts.byPosition and guessed > 0 then
-        notes[#notes + 1] =
-            L["%d player(s) have a spec that hasn't been seen yet and were counted as ranged."]:format(guessed)
+        notes[#notes + 1] = L["%d player(s) with an unknown spec were counted as ranged."]:format(guessed)
     end
     -- pins come from the draft, so they apply before they are saved
-    local pins = self:MemberPins(self.GetGroupMembers())
+    local members = self.GetGroupMembers()
+    local pins = self:MemberPins(members)
     for _, p in ipairs(players) do
-        p.pin = pins[p.key]
+        p.pin = pins[p.key] or (p.entry and self:PinOf(p.entry, members)) -- roster entries: pinned by their name
     end
     -- damage each player counts for when placing Chaos Brand/Mystic Touch: their DPS, else their role's average
     -- (or a stand-in by role when nobody has meter data)
@@ -140,18 +201,31 @@ function RaidUtility:GenerateSplit()
         notes[#notes + 1] = ShortfallText(need)
     end
     local roster = self:SplitToRoster(sides, self.db.splitLayout)
-    self:ConfirmDiscard(function()
-        if self.db.splitToNewRoster then
+    self:KeepLeftOut(roster, leftOut, notes)
+    if self.db.splitPI then
+        -- each priest goes into the group of their best target on the same side ("Roles only" ranks by spec alone)
+        -- "Roles only": who the meter's players are, without their numbers
+        local reading = self.db.splitMeterSource == "roles" and self.MeterIdentities(meter) or meter
+        local pairsList = self:AssignPI(roster, members, reading, self.db.splitLayout)
+        self:PairPI(roster, members, pairsList, self.db.splitLayout, reading)
+        for _, pair in ipairs(pairsList) do
+            notes[#notes + 1] = self.PIPairText(pair)
+        end
+    end
+    if self.db.splitToNewRoster then
+        -- opening another roster resets Undo, so unsaved edits here are confirmed first
+        self:ConfirmDiscard(function()
             local data = { roster = roster, notes = notes, pins = self.draftPins }
             StaticPopup_Show("NSRTRAIDUTILITY_SAVE_SPLIT", nil, nil, data)
-        else
-            self.draft = roster
-            self:MarkDirty()
-            PrintNotes(notes)
-            Print(L["The split is in the draft. Drag players to adjust it, then Save."])
-            self:RefreshUI()
-        end
-    end)
+        end)
+    else
+        -- into the open roster: an edit like any other, so Undo brings back what was there
+        self.draft, self.draftSplit = roster, true
+        self:MarkDirty()
+        PrintNotes(notes)
+        Print(L["Split done. Drag players to adjust it, then Save."])
+        self:RefreshUI()
+    end
 end
 
 -- ------------------------------------------------------------
@@ -165,39 +239,15 @@ function RaidUtility:BuildBalanceStrip(frame, C, y)
     strip:SetSize(780, 60)
     ui.balance = strip
 
-    -- NSRT gives a dropdown's own label half its width, which clips the layout names, so the label is separate
-    local label = strip:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -6)
-    label:SetText(L["Sides:"])
-    ui.layout = C.CreateDropdown(strip, "", function()
-        local items = {}
-        for _, l in ipairs(self.SplitLayouts) do
-            items[#items + 1] = {
-                label = l.label,
-                value = l.key,
-                onclick = function()
-                    self.db.splitLayout = l.key
-                    self:RefreshUI()
-                end,
-            }
-        end
-        return items
-    end, function() return self.GetSplitLayout(self.db.splitLayout).label end, 195)
-    ui.layout:SetPoint("TOPLEFT", strip, "TOPLEFT", 40, 0)
-
-    -- Split options: toggles and the meter source. NSRT's dropdown closes on each pick and has no check marks, so
-    -- the items carry [x] / (*) and the box shows a summary.
-    local optionsLabel = strip:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    optionsLabel:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -32)
-    optionsLabel:SetText(L["Split:"])
-    ui.options = C.CreateDropdown(
-        strip,
-        "",
-        function() return self:SplitOptionItems() end,
-        function() return self:SplitOptionsSummary() end,
-        195
-    )
-    ui.options:SetPoint("TOPLEFT", strip, "TOPLEFT", 40, -26)
+    -- the split settings in a few words, and the way to change them (the setup panel)
+    ui.summary = strip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ui.summary:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, 0)
+    ui.summary:SetWidth(235)
+    ui.summary:SetHeight(30)
+    ui.summary:SetJustifyH("LEFT")
+    ui.summary:SetJustifyV("TOP")
+    ui.changeSetup = C.CreateButton(strip, L["Change split setup"], function() self:ToggleSplitSetup() end, 150, 20)
+    ui.changeSetup:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -36)
 
     ui.sideText = {}
     for s = 1, 2 do
@@ -219,74 +269,250 @@ function RaidUtility:BuildBalanceStrip(frame, C, y)
     ui.missing:SetWidth(530)
     ui.missing:SetJustifyH("LEFT")
     ui.missing:SetWordWrap(false)
+
+    -- outside a raid there are no sides to show: say where they are
+    ui.noRaid = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    ui.noRaid:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, y - 4)
+    ui.noRaid:SetWidth(780)
+    ui.noRaid:SetJustifyH("LEFT")
+    local noRaid = "Side totals and split setup appear in a raid, or once players are on the roster "
+        .. "(e.g. From damage meter in Import/Export)."
+    ui.noRaid:SetText(L[noRaid])
 end
 
-local TOGGLES = {
-    { key = "splitMeleeRanged", label = L["Even melee/ranged"], short = L["melee/ranged"] },
-    { key = "splitLustRez", label = L["Bloodlust and battle rez on both sides"], short = L["lust/rez"] },
-}
--- splitBuffs: "even" spreads every buff; "max" also places a lone Demon Hunter/Monk where its debuff adds most
-local BUFF_MODES = {
-    { value = "off", label = L["Raid buffs: ignore"] },
-    { value = "even", label = L["Raid buffs: on both sides"], short = L["buffs"] },
+-- ------------------------------------------------------------
+-- Split setup panel: every split setting in one place, next to the button that runs it. NSRT's checkboxes stay
+-- open (its dropdown closes on every pick); a group of choices behaves like radio buttons.
+-- ------------------------------------------------------------
+local function Choices(list)
+    local out = {}
+    for _, c in ipairs(list) do
+        out[#out + 1] = { value = c[1], label = c[2], tip = c[3] }
+    end
+    return out
+end
+
+-- Left column, then right column. key: the saved setting. choices: pick one; toggles: on/off each.
+local GROUPS_TIP = "Leave groups 5-8 (players sitting out) out of the split, side totals and PI. "
+    .. "On by default in a Mythic raid; offline players are always left out."
+local NEW_ROSTER_TIP = "Checked: the split becomes a new roster. "
+    .. "Unchecked: it replaces the open roster; Save to keep it."
+
+local SETUP = {
     {
-        value = "max",
-        label = L["Raid buffs: on both sides, Chaos Brand/Mystic Touch for most damage"],
-        short = L["buffs (most damage)"],
+        {
+            title = L["Sides"],
+            key = "splitLayout",
+            choices = (function() -- Split.lua (loaded first) defines the layouts
+                local out = {}
+                for _, l in ipairs(RaidUtility.SplitLayouts) do
+                    out[#out + 1] = { value = l.key, label = l.label }
+                end
+                return out
+            end)(),
+        },
+        {
+            title = L["Balance on"],
+            key = "splitMeterSource",
+            readMeter = true,
+            choices = Choices({
+                {
+                    "overall",
+                    L["Overall session"],
+                    L["The damage meter's Overall session: every fight since it was reset."],
+                },
+                { "lastfight", L["Last fight"], L["The last fight only: closest to how players do on this boss."] },
+                { "roles", L["Roles only"], L["Ignore the damage meter: spread roles evenly and nothing else."] },
+            }),
+        },
+        {
+            title = L["Raid buffs"],
+            key = "splitBuffs",
+            choices = Choices({
+                { "off", L["Ignore"] },
+                { "even", L["On both sides"], L["Each raid buff on both sides when the raid has two of that class."] },
+                {
+                    "max",
+                    L["Most damage from DH/Monk"],
+                    L["On both sides, and a lone Demon Hunter or Monk where Chaos Brand/Mystic Touch adds the most."],
+                },
+            }),
+        },
+    },
+    {
+        {
+            title = L["Also balance"],
+            toggles = Choices({
+                {
+                    "splitMeleeRanged",
+                    L["Even melee/ranged"],
+                    L["Spread melee and ranged evenly among healers and DPS."],
+                },
+                {
+                    "splitLustRez",
+                    L["Lust and brez"],
+                    L["Lust on each side, and up to 2 brez per side."],
+                },
+                {
+                    "splitPI",
+                    L["Group priests with PI targets"],
+                    L["Move each priest into their best PI target's group, on their own side."],
+                },
+            }),
+        },
+        {
+            title = L["PI priority"],
+            key = "piPriority",
+            choices = Choices({
+                { "specs", L["Best specs (sims)"], L["Trust the PI sims: for teams that line PI up with cooldowns."] },
+                { "balanced", L["Balanced"], L["Half sims, half each player's meter DPS."] },
+                { "players", L["Best players (DPS)"], L["The players doing the most damage, whatever their spec."] },
+            }),
+        },
+        {
+            title = L["Who plays"],
+            toggles = {
+                {
+                    value = "splitGroups14",
+                    label = L["Groups 1-4 only"],
+                    tip = L[GROUPS_TIP],
+                    get = function() return RaidUtility:ActiveGroupsOnly() end,
+                },
+            },
+        },
+        {
+            title = L["Result"],
+            toggles = Choices({
+                {
+                    "splitToNewRoster",
+                    L["As new roster"],
+                    L[NEW_ROSTER_TIP],
+                },
+            }),
+        },
     },
 }
-local SOURCES = {
-    { value = "overall", label = L["Balance on the Overall session"], short = L["Overall"] },
-    { value = "lastfight", label = L["Balance on the last fight"], short = L["Last fight"] },
-    { value = "roles", label = L["Balance on roles only"], short = L["Roles only"] },
-}
 
-function RaidUtility:SplitOptionItems()
-    local db, items = self.db, {}
-    for _, toggle in ipairs(TOGGLES) do
-        items[#items + 1] = {
-            label = (db[toggle.key] and "[x] " or "[  ] ") .. toggle.label,
-            value = toggle.key,
-            onclick = function()
-                db[toggle.key] = not db[toggle.key]
-                self:RefreshUI()
-            end,
-        }
+-- Re-checks every control from the saved settings
+local function RefreshSetup(panel)
+    local db = RaidUtility.db
+    for _, control in ipairs(panel.controls) do
+        local meta = panel.meta[control]
+        if meta.key then
+            control:SetValue(db[meta.key] == meta.choice)
+        else
+            control:SetValue(meta.get and meta.get() or db[meta.toggle])
+        end
     end
-    for _, mode in ipairs(BUFF_MODES) do
-        items[#items + 1] = {
-            label = (db.splitBuffs == mode.value and "(*) " or "(  ) ") .. mode.label,
-            value = mode.value,
-            onclick = function()
-                db.splitBuffs = mode.value
-                self:RefreshUI()
-            end,
-        }
-    end
-    for _, source in ipairs(SOURCES) do
-        items[#items + 1] = {
-            label = (db.splitMeterSource == source.value and "(*) " or "(  ) ") .. source.label,
-            value = source.value,
-            onclick = function()
-                db.splitMeterSource = source.value
-                self:RefreshUI(true) -- a different session: read the meter again
-            end,
-        }
-    end
-    return items
 end
 
--- "Overall, melee/ranged, lust/rez" for the dropdown box
+function RaidUtility:BuildSplitSetup(frame, C, anchor)
+    local ui = self.ui
+    local panel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    ui.setup = panel
+    panel.controls = {}
+    panel.meta = {} -- control -> { label, key + choice (one of a group) or toggle }; NSRT's objects stay untouched
+    panel:SetSize(540, 352)
+    panel:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+    panel:SetFrameStrata("DIALOG")
+    panel:EnableMouse(true)
+    panel:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 2 })
+    panel:SetBackdropColor(0.06, 0.08, 0.11, 0.98)
+    panel:SetBackdropBorderColor(0, 0.7, 0.85)
+    panel:Hide()
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -12)
+    title:SetText(L["Split setup"])
+
+    local function Control(label, tip, getValue, onClick, x, y)
+        local box = C.CreateCheckButton(panel, label, getValue, onClick, 250, 20)
+        box:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+        panel.meta[box] = { label = label }
+        if tip then Widgets.Tooltip(box.frame, tip) end
+        panel.controls[#panel.controls + 1] = box
+        return box
+    end
+    for col, sections in ipairs(SETUP) do
+        local x, y = 14 + (col - 1) * 265, -36
+        for _, section in ipairs(sections) do
+            local heading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            heading:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+            heading:SetText(section.title)
+            y = y - 16
+            if section.key then
+                for _, choice in ipairs(section.choices) do
+                    local box = Control(
+                        choice.label,
+                        choice.tip,
+                        function() return self.db[section.key] == choice.value end,
+                        function()
+                            self.db[section.key] = choice.value
+                            RefreshSetup(panel)
+                            self:RefreshUI(section.readMeter)
+                        end,
+                        x,
+                        y
+                    )
+                    panel.meta[box].key, panel.meta[box].choice = section.key, choice.value
+                    y = y - 20
+                end
+            else
+                for _, toggle in ipairs(section.toggles) do
+                    local box = Control(
+                        toggle.label,
+                        toggle.tip,
+                        toggle.get or function() return self.db[toggle.value] end,
+                        function(_, value)
+                            self.db[toggle.value] = value
+                            self:RefreshUI()
+                        end,
+                        x,
+                        y
+                    )
+                    panel.meta[box].toggle, panel.meta[box].get = toggle.value, toggle.get
+                    y = y - 20
+                end
+            end
+            y = y - 8
+        end
+    end
+
+    local generate = C.CreateButton(panel, L["Generate split"], function()
+        panel:Hide()
+        self:GenerateSplit()
+    end, 150, 24)
+    generate:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 14, 12)
+    ui.generateButton = generate
+    local close = C.CreateButton(panel, L["Close"], function() panel:Hide() end, 90, 24)
+    close:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -14, 12)
+    panel:SetScript("OnShow", RefreshSetup)
+end
+
+-- Split raid...: opens the setup panel (or closes it)
+function RaidUtility:ToggleSplitSetup()
+    local panel = self.ui and self.ui.setup
+    if not panel then return end
+    if panel:IsShown() then
+        panel:Hide()
+    else
+        RefreshSetup(panel)
+        panel:Show()
+    end
+end
+
+-- "Overall, melee/ranged, lust/rez, buffs" for the strip
 function RaidUtility:SplitOptionsSummary()
-    local parts = {}
-    for _, source in ipairs(SOURCES) do
-        if self.db.splitMeterSource == source.value then parts[1] = source.short end
-    end
-    for _, toggle in ipairs(TOGGLES) do
-        if self.db[toggle.key] then parts[#parts + 1] = toggle.short end
-    end
-    for _, mode in ipairs(BUFF_MODES) do
-        if mode.short and self.db.splitBuffs == mode.value then parts[#parts + 1] = mode.short end
+    local db = self.db
+    local source = { overall = L["Overall"], lastfight = L["Last fight"], roles = L["Roles only"] }
+    local parts = { source[db.splitMeterSource] or L["Overall"] }
+    if db.splitMeleeRanged then parts[#parts + 1] = L["melee/ranged"] end
+    if db.splitLustRez then parts[#parts + 1] = L["lust/brez"] end
+    if db.splitPI then parts[#parts + 1] = L["PI"] end
+    if self:ActiveGroupsOnly() then parts[#parts + 1] = L["groups 1-4"] end
+    if db.splitBuffs == "even" then
+        parts[#parts + 1] = L["buffs"]
+    elseif db.splitBuffs == "max" then
+        parts[#parts + 1] = L["buffs (most damage)"]
     end
     return table.concat(parts, ", ")
 end
@@ -304,9 +530,9 @@ local function MissingText(short)
     for _, need in ipairs(short) do
         local list = bySide[need.side]
         if need.kind == "lust" then
-            list[#list + 1] = L["Bloodlust"]
+            list[#list + 1] = L["lust"]
         elseif need.kind == "rez" then
-            list[#list + 1] = L["battle rez"]
+            list[#list + 1] = L["brez"]
         else
             for _, buff in ipairs(RaidUtility.RAID_BUFFS) do
                 if buff.class == need.key then list[#list + 1] = buff.short end
@@ -325,13 +551,17 @@ end
 -- Fills the strip from the draft; returns group -> side for the group headers, or nil when it is hidden
 function RaidUtility:RefreshBalance(members)
     local ui = self.ui
-    ui.layout:Refresh()
-    ui.options:Refresh()
-    if not self.InRaid() then
+    -- in a raid, or when planning a roster out of one (e.g. after From damage meter)
+    if not (self.InRaid() or self:HasEntries()) then
         ui.balance:Hide()
+        ui.noRaid:Show()
         return
     end
     ui.balance:Show()
+    ui.noRaid:Hide()
+    ui.summary:SetText(
+        L["%1$s; %2$s."]:format(self.GetSplitLayout(self.db.splitLayout).label, self:SplitOptionsSummary())
+    )
     local meter = self.meter
     local sides, sideOf, groups, assumed = self:RosterBalance(self.draft, members, self.db.splitLayout, meter)
     local a, b = sides[1], sides[2]
@@ -371,9 +601,74 @@ function RaidUtility:RefreshBalance(members)
         notes[#notes + 1] = L["No damage meter data for these players yet."]
     end
     if self.db.splitMeterSource == "roles" then notes[#notes + 1] = L["Split uses roles only."] end
-    if assumed > 0 then notes[#notes + 1] = L["%d without a role (counted as damage)."]:format(assumed) end
+    if assumed > 0 then notes[#notes + 1] = L["%d without a role (counted as DPS)."]:format(assumed) end
     ui.balanceNote:SetText(table.concat(notes, "  "))
     local tallies = { self.Tally(a.utility), self.Tally(b.utility) }
     ui.missing:SetText(MissingText(self.Shortfalls(tallies, self:SplitOptions())))
     return sideOf
+end
+
+-- ------------------------------------------------------------
+-- Post to raid: the sides and Power Infusion pairs, sent only when clicked
+-- ------------------------------------------------------------
+local CHAT_LIMIT = 250 -- chat messages are capped at 255 characters
+
+-- The lines Post to raid would send for the current roster: the sides when it's a split, the PI pairs when that
+-- option is on. Empty when there's nothing to post. pairsList: PI pairs already worked out this refresh (optional).
+function RaidUtility:AssignmentLines(pairsList)
+    local lines = {}
+    if not self.InRaid() then return lines end
+    if self.draftSplit then
+        local _, groups = self.GroupSides(self.draft, self.db.splitLayout, self:MaxGroup())
+        local split = L["Split: side A = groups %1$s; side B = groups %2$s"]
+        lines[#lines + 1] = split:format(table.concat(groups[1], ", "), table.concat(groups[2], ", "))
+    end
+    if self.db.splitPI then
+        pairsList = pairsList or self:AssignPI(self.draft, self.GetGroupMembers(), self.meter, self:PISides())
+        local line = L["PI:"]
+        for _, pair in ipairs(pairsList) do
+            -- roster entries as written: Name-Realm stays when two players share a name
+            local part = " " .. pair.priestEntry .. " -> " .. pair.target.entry
+            if #line + #part + 1 > CHAT_LIMIT then
+                lines[#lines + 1] = line
+                line = L["PI:"]
+            end
+            line = line .. (line == L["PI:"] and "" or ",") .. part
+        end
+        if line ~= L["PI:"] then lines[#lines + 1] = line end
+    end
+    return lines
+end
+
+-- True while the game blocks addon chat (e.g. encounter restrictions in a boss fight)
+function RaidUtility.ChatBlocked() return C_ChatInfo.InChatMessagingLockdown() == true end
+
+function RaidUtility:PostAssignments()
+    -- in combat, the PI pairs from the last refresh: a fresh look at the group could miss hidden names
+    local cached = InCombatLockdown() and self.ui and self.ui.piPairs or nil
+    local lines = self:AssignmentLines(cached)
+    if #lines == 0 then
+        Print(L["Nothing to post: generate a split, or turn on Group priests with PI targets."])
+        return
+    end
+    if self.ChatBlocked() then
+        Print(L["The game is blocking addon chat right now (encounter restrictions). Try again after the fight."])
+        return
+    end
+    if self.Preview.IsActive() then
+        Print(L["Preview: would post to raid chat:"])
+        for _, line in ipairs(lines) do
+            Print(line)
+        end
+        return
+    end
+    -- group finder raids talk in instance chat; RAID and PARTY don't reach them
+    local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or self.InRaid() and "RAID" or "PARTY"
+    for _, line in ipairs(lines) do
+        local ok = pcall(C_ChatInfo.SendChatMessage, line, channel)
+        if not ok then
+            Print(L["Could not post to chat; the game may be blocking addon chat right now."])
+            return
+        end
+    end
 end

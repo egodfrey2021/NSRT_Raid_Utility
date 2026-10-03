@@ -16,8 +16,12 @@
 ---@field splitToNewRoster boolean?
 ---@field splitMeleeRanged boolean?
 ---@field splitLustRez boolean?
+---@field splitPI boolean?
+---@field splitGroups14 boolean? "Groups 1-4 only"; nil = on in a Mythic raid, off elsewhere
+---@field piPriority string? "specs", "balanced", or "players"
 ---@field splitBuffs string? "off", "even", or "max"
 ---@field splitMeterSource string?
+---@field splitRosters table<string, boolean>? roster name -> true when Generate split made it
 ---@field pins table<string, table<string, integer>>? roster name -> lowercased entry -> side (1 or 2)
 
 ---Saved variables (## SavedVariables in the .toc); nil until WoW loads them
@@ -48,6 +52,9 @@ INLINE_DAMAGER_ICON = ""
 
 ---@type GameTooltip
 GameTooltip = {}
+
+---@type FontObject
+GameFontHighlightSmall = {}
 
 ---@type table<string, { r: number, g: number, b: number, colorStr: string }>
 RAID_CLASS_COLORS = {}

@@ -15,14 +15,38 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   Right-click clears a slot. Dropping onto a typed (offline) name moves that name to an empty slot instead of
   deleting it. Slots show role icons; typed names not in the group are grey and tagged "(not in group)".
   "Import list" pastes an NSRT `invitelist:` line (positional) or plain names into the draft.
-- Group edits go to a draft (`RaidUtility.draft`); **Save** commits, **Revert** discards. Anything that replaces the
-  draft (switch/create roster, Fill, Clear, Import, Revert, Generate split) confirms first via `ConfirmDiscard` when
-  there are unsaved edits. Buttons are enabled only when usable (Save/Revert only when dirty, Arrange/Generate split
+- Group edits go to a draft (`RaidUtility.draft`); **Save** commits, **Revert** discards, **Undo** steps back. Undo
+  works through `MarkDirty`: every edit calls it after changing the draft, so it pushes the state kept from the
+  previous call (`lastState`; groups, pins, split mark; 20 deep). `LoadDraft` and `ResetUndo` start fresh. Row 1:
+  New, Duplicate (`DuplicateRoster`: the draft as seen, into a new roster), Rename (`RenameRoster`, moves pins and
+  split mark), Delete, Save, Undo, Revert. Group header handles (`ui.headerHandles`) drag to swap whole groups. `ConfirmDiscard` (when there are unsaved edits) only guards what Undo can't
+  reach: switching rosters, New, Revert, and a split saved as a new roster (they reset the undo history). Fill,
+  Clear, imports and a split into the open roster apply at once. `dirty` = `not MatchesSaved()` (groups, pins, split
+  mark vs the last save), recomputed in `MarkDirty` and `Undo`. Buttons are enabled only when usable (Save/Revert only when dirty, Arrange/Generate split
   only in a raid); states are set at the end of `RefreshUI`.
-- Action row: "Edit draft" (Fill from raid, Generate split + As new roster checkbox, Import list, Clear all) and
-  "Raid" (Invite missing, Arrange draft). Both tab buttons use the draft; `/nru arrange` and `/nru invite` use the
+- Action row: "Edit" (Fill from raid, Split raid... = opens the Split setup panel, Import/Export, Clear all) and
+  "Raid" (Invite missing, Sort groups, Power Infusion = /nru pi). `SetEnabled(button, on, reason)` stores why a
+  button is off; `Explain` tooltips (`Widgets.Tooltip` takes a function) show it. Arrange also needs raid lead/assist
+  (skipped in preview).
+- **Split setup panel** (`BuildSplitSetup`, `ToggleSplitSetup`, SplitUI.lua): every split setting as NSRT checkboxes
+  (they stay open; its dropdown closes per pick). Choice groups (`key` + `choice`) act as radios via `RefreshSetup`;
+  toggles have `key = false` explicitly (stub frames answer unset fields with a function). The strip shows a summary
+  (`SplitOptionsSummary`) and a "Change split setup" button. Outside a raid, `ui.noRaid` replaces the strip.
+- **Slot markers** take no name width: pin = `pinBar` (left edge, `Widgets.SIDE_COLOR`, also used for header side
+  letters), PI = `piIcon` (spell icon; dimmed on a priest who only gives it). Grey = not in group, said in the tooltip.
+  `PITags` returns key -> { gets, gives }. Above the grid: a one-line legend and `ui.caption` (what the numbers are).
+- **Post to raid** (`AssignmentLines`/`PostAssignments`, SplitUI.lua): split sides (if `draftSplit`) and PI pairs
+  (if `db.splitPI`) via `C_ChatInfo.SendChatMessage` to RAID/PARTY, lines kept under 255 chars; only on click,
+  preview prints instead. `ChatBlocked()` (`C_ChatInfo.InChatMessagingLockdown`, e.g. encounter restrictions)
+  disables Post and refuses to send; the send is pcall'd. Group finder raids use INSTANCE_CHAT. Combat: `PLAYER_REGEN_DISABLED` -> `ApplyCombatLock(true)` greys the raid actions (the
+  event fires before `InCombatLockdown()` is true); `RefreshUI` re-applies it. Invite missing's tooltip lists
+  `MissingInvites`. `SetMeterReading` stores the reading and its clock time for the caption.
+- **Combat**: names can be hidden, so `RefreshUI` reuses `ui.members` from before the fight (the caption says so;
+  `PLAYER_REGEN_ENABLED` re-reads). Invite missing refuses in combat (hidden names would look missing); Post to raid
+  uses the cached `ui.piPairs` then.
+- **Results**: `Print` -> `OnMessage` keeps `ui.log` (40) and `ui.batch` (messages in the same frame = one action);
+  the result line shows the newest + "(+N more in History)"; History is a scrollable popup. Both tab buttons use the draft; `/nru arrange` and `/nru invite` use the
   saved roster (tooltips say so).
-- `Print` also calls `RaidUtility.OnMessage`, which the Rosters tab sets to show the last 2 results under the grid.
 - **Generate split** (`/nru split` opens Rosters and runs it): splits current raid members into two sides. Tanks,
   then healers, then damage are distributed per role, each player to the side with the lower role total (odd one out
   of a role goes to the smaller side; ties break by name). Values come from Blizzard's `C_DamageMeter` Overall
@@ -56,6 +80,18 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   - `db.splitMeterSource`: "overall", "lastfight" (the Current session, else the newest from
     `GetAvailableCombatSessions`; needs in-game confirmation of what Current holds after combat) or "roles"
     (split values zeroed; numbers still shown from Overall).
+- **Planning out of a raid**: `EntrySource` turns a roster entry into a member, or a stand-in built from the meter's
+  player of that name (class, specID, role, DPS/HPS). Generate split out of a raid splits the roster's players
+  (`GetRosterSplitPlayers`; unknown names count as DPS with no data); the balance strip shows when in a raid or the
+  roster has names; slots color meter-known names by class (grey in a group). PI uses `EntrySource` throughout (ranking, priests by
+  the meter's class, pairing, slot tags), so `/nru pi` works out of a raid too; "Roles only" gives it
+  `MeterIdentities` (who, without numbers). Only Post to raid needs a raid.
+- **Who plays** (`Plays`, `MaxGroup`, Split.lua): members carry `online` (GetRaidRosterInfo / UnitIsConnected;
+  false only when the game says so). Offline players never take part; with "Groups 1-4 only" (`db.splitGroups14`,
+  nil = on in a Mythic raid via GetInstanceInfo difficulty 16) neither do groups 5-8. Generate split filters live
+  members (`GetSplitPlayers` returns `leftOut`; `KeepLeftOut` keeps them in their own group or the first free one from
+  8 down); the strip and PI use roster groups (`GroupSides(roster, layout, maxGroup)` gives 5-8 no side).
+  Invite missing turns a nickname into its character (`NSRT.GetChar`) before inviting.
 - **Pins** (shift-right-click a slot or unplaced player: side A, B, off): `RaidUtility.draftPins` (`PinKey`: the
   member's Name-Realm key when the entry resolves, else the lowercased entry -> 1|2; `MemberPins` re-resolves at
   split time) is part of the draft: copied in `LoadDraft`, saved to `db.pins[roster]` in `SaveDraft`, dropped by Revert,
@@ -72,14 +108,33 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   player source in the session (Player- GUID or a group member; pets/creatures skipped) not already on the roster
   goes into empty slots by role, then value. Roles for non-members come from the source's `specIconID` (icon -> role
   map built once from `GetSpecializationInfoForClassID`), else healer if HPS > DPS. Adds only, so no confirmation.
+- **Power Infusion** (`PI.lua`, data in generated `PIData.lua`): `PIPriority` ranks damage dealers on the roster
+  (never tanks/healers/Augmentation) by effective gain% x meter DPS. Effective = w x spec gain (`PI_DATA.gain[spec]`,
+  class average if the spec isn't seen, marked estimated) + (1 - w) x the average of all specs, w from
+  `db.piPriority` (`PI_TRUST`: specs 1, balanced 0.5 default, players 0): sims assume perfect PI timing, which weaker
+  groups don't reach, so there the better player wins. Ties fall back to the raw spec gain; players without meter data count at the lowest measured DPS (PI isn't gambled on someone
+  unmeasured). `AssignPI`: each priest (class PRIEST, any spec) takes the best untaken target; on a split, from their own side
+  first. "A split" = the draft came from Generate split (`draftSplit`, saved per roster in `db.splitRosters`; Fill,
+  Clear and imports clear it, drags keep it); `PISides()` passes the layout only then. Generate split's own pairing
+  always uses sides. `PairPI` moves the priest into the
+  target's group (empty slot, else swap with someone who isn't a target or placed priest); targets never move.
+  `/nru pi` prints the top 10 and the pairs and pairs the draft (unsaved edit). Split option `db.splitPI` pairs inside
+  Generate split and shows `[PI]`/`[PI>]` tags (`PITags`, tooltip on the priest).
+- **PIData.lua is generated**: `mise run pi-data` (`tools/update-pi-data.py`, needs python3 + network): mean of Ulria's
+  sheet (tab "PI Sims - 5 mins patchwerk (on CDs)", 4-piece column, hero trees averaged) and bloodmallet's JSON
+  (`chart/get/power_infusion/castingpatchwerk/...`, "X" vs "{X}" = with/without PI), plus a +-0.5 point nudge from
+  whoshouldgetpi's per-boss log medians (embedded Next.js `allStats`; raw deltas are biased negative, so rank only).
 - **Preview raid** (`/nru preview [size]`): a fixture raid for trying the tab solo; Arrange/Invite are dry runs.
 - Slash commands: `/nru` (Rosters), `/nru split`, `/nru arrange [roster]`, `/nru invite`, `/nru preview [size|off]`,
-  `/nru debug`; `/nsx` is an alias. The minimap addon drawer also opens Rosters.
+  `/nru pi`, `/nru debug`; `/nsx` is an alias. The minimap addon drawer also opens Rosters.
 
 ## Files (load order = .toc order)
 - `Locales.lua`: `RaidUtility.L`; `L["English"]` returns the key until translations exist. All user-facing text
   uses it.
-- `NSRT.lua`: the only place that touches `_G.NorthernSkyRaidTools` internals or `NSAPI`. Looks NSRT up on every
+- `NSRT.lua`: the only place that touches `_G.NorthernSkyRaidTools` internals or `NSAPI`. Every call into NSRT
+  goes through its local `Call` (pcall; failure printed in chat, error text to `/nru debug`; `once` for calls made on
+  every redraw: nickname lookup, spec cache). StartSort/InviteList/Restricted report and fall back (no sort,
+  one-by-one invites, refuse sorting). RosterUI gets NSRT's widget library (`C`) from Core, never NSRT itself. Looks NSRT up on every
   call because NSRT's UI addon is load-on-demand. When NSRT changes, this (plus Core's tab injection) is what breaks.
 - `Widgets.lua`: shared `WHITE` texture, `ROLE_ICON`, `TopButton`, `Tooltip`.
 - `Roster.lua`: data model + `db.version` migrations, draft, member list/name resolution, invite, arrange.
@@ -88,6 +143,7 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
 - `RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
 - `Split.lua`: damage meter reading (`ReadMeter`), roles, side balancing, side -> roster layout, draft side totals.
 - `SplitUI.lua`: Generate split, its naming popup, and the balance strip (built by `BuildRosterTab`).
+- `PIData.lua` (generated, see above) and `PI.lua`: Power Infusion priority, assignment, pairing, `/nru pi`.
 - `Core.lua`: injects the Rosters tab into NSRT's window, events, `/nru` slash command (`/nsx` kept as an alias),
   addon compartment click.
 
@@ -151,7 +207,8 @@ click), event-driven, no Lua errors/taint, Retail 12.x only, NSRT via `NSRT.lua`
   (`.github/workflows/ci.yml`) runs the same and gates the release job. Run `mise run fmt` then `mise run check`
   before calling work done. StyLua won't wrap concatenations inside `L[...]`: build long keys in a local.
 - Tests: `tests/harness.lua` stubs the WoW API and loads files in .toc order; one suite per area (`tests/roster.lua`,
-  `split.lua`, `core.lua`, `rosterui.lua`, `preview.lua`). C_Timer is manual (`H.RunTimers(maxDelay)`); the harness
+  `split.lua`, `core.lua`, `rosterui.lua`, `preview.lua`, `pi.lua`). `H.SetMeter` is the one place tests swap the
+  damage meter stub (LuaLS flags a second assignment site as a duplicate definition). C_Timer is manual (`H.RunTimers(maxDelay)`); the harness
   emulates WoW's positional `%1$s` format, which LuaJIT lacks; `print` is captured (use `io.write` when debugging).
 - Type checking: `.luarc.json` + `types/globals.lua` (NSRT's API, our saved variables and globals, the FrameXML
   globals we use). WoW API types are Ketho's annotations, fetched by `mise run luals-setup` into `.luals/`

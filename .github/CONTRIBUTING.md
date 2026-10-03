@@ -65,7 +65,7 @@ round of review. For anything bigger than a fix, open an issue first and describ
   extension; `mise run luals-setup` fetches them so the editor and CI agree.
 - Using something from NSRT, or a Blizzard UI global the annotations don't cover? Declare it in `types/globals.lua`.
 - Add or update a test in the suite for the area you changed: `tests/roster.lua`, `split.lua`, `core.lua`,
-  `rosterui.lua`. The harness in `tests/harness.lua` stubs the WoW API; timers only fire on `H.RunTimers()`.
+  `rosterui.lua`, `preview.lua`, `pi.lua`. The harness in `tests/harness.lua` stubs the WoW API; timers only fire on `H.RunTimers()`.
 - `tests/ingame.lua` holds WoWUnit tests that run in the real client at login and `/reload` (install WoWUnit to see
   them). Add one when a change relies on something the offline harness stubs: a Blizzard API or global, a frame
   template, or an NSRT function. Keep them read-only: no saved-data changes, nothing sent to the game, and leave a

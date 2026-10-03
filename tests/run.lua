@@ -7,7 +7,7 @@ NSRTRaidUtilityDB = nil
 H.utility:InitDB()
 
 -- Each suite owns one area of the addon; suites share the loaded addon and run in this order.
-for _, suite in ipairs({ "roster", "split", "core", "rosterui", "preview" }) do
+for _, suite in ipairs({ "roster", "split", "core", "rosterui", "preview", "pi" }) do
     H.suite = suite
     assert(loadfile("tests/" .. suite .. ".lua"))(H)
 end

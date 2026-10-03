@@ -13,7 +13,7 @@ local injected, hooked, warned, pendingTab = false, false, false, nil
 
 local function InjectTab()
     if injected then return true end
-    local menu, C, NSI = NSRT.GetMenu()
+    local menu, C = NSRT.GetMenu()
     if not menu then return end -- NSRT is still building its window; retry on the next OnShow
 
     local refTab = menu:GetTabFrameByName("General")
@@ -52,7 +52,7 @@ local function InjectTab()
         table.insert(menu.AllFrames, frame)
         table.insert(menu.AllButtons, btn)
 
-        RaidUtility[tab.build](RaidUtility, frame, NSI)
+        RaidUtility[tab.build](RaidUtility, frame, C) -- NSRT's widgets; NSRT itself stays behind NSRT.lua
     end
     injected = true
     return true
@@ -113,6 +113,8 @@ end
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
+f:RegisterEvent("PARTY_LEADER_CHANGED") -- lead/assist changes what Sort groups allows
+f:RegisterEvent("PLAYER_REGEN_DISABLED") -- grey out the raid actions while in combat
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:SetScript("OnEvent", function(_, event, name)
     if event == "GROUP_ROSTER_UPDATE" then
@@ -120,6 +122,10 @@ f:SetScript("OnEvent", function(_, event, name)
             RaidUtility.Preview.Stop(L["Preview raid off: you joined a group."])
         end
         RaidUtility:OnRosterUpdate()
+        ScheduleRefresh()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        RaidUtility:ApplyCombatLock(true) -- just the buttons: a full refresh waits for combat to end
+    elseif event == "PARTY_LEADER_CHANGED" then
         ScheduleRefresh()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- covers roster changes skipped in combat, and the Overall meter session changed during the fight
@@ -138,6 +144,7 @@ function NSRTRaidUtility_OnAddonCompartmentClick() OpenTab(RaidUtility.ROSTER_TA
 
 -- /nru                 open the Rosters tab (/nsx still works)
 -- /nru split           open the Rosters tab and generate a split
+-- /nru pi              Power Infusion priority, and each priest into their target's group on the draft
 -- /nru arrange [name]  sort groups using the active (or named) roster
 -- /nru invite          invite roster players not in the group
 -- /nru debug           toggle debug output
@@ -151,6 +158,8 @@ SlashCmdList.NSRTRAIDUTILITY = function(msg)
         RaidUtility:Arrange(rest ~= "" and rest or nil)
     elseif cmd == "invite" then
         RaidUtility:InviteMissing()
+    elseif cmd == "pi" then
+        RaidUtility:PowerInfusion()
     elseif cmd == "split" then
         OpenTab(RaidUtility.ROSTER_TAB)
         RaidUtility:GenerateSplit()

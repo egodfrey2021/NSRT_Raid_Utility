@@ -4,12 +4,13 @@ local _, RaidUtility = ...
 local L, Print = RaidUtility.L, RaidUtility.Print
 local Widgets = RaidUtility.Widgets
 local WHITE, TopButton, ROLE_ICON = Widgets.WHITE, Widgets.TopButton, Widgets.ROLE_ICON
+local SIDE_COLOR = Widgets.SIDE_COLOR
 
 -- ------------------------------------------------------------
 -- Popups
 -- ------------------------------------------------------------
 local function AcceptNewRoster(dialog)
-    local box = dialog.EditBox or dialog.editBox
+    local box = dialog.EditBox
     if box and RaidUtility:CreateRoster(box:GetText()) then RaidUtility:RefreshUI() end
 end
 
@@ -20,7 +21,7 @@ StaticPopupDialogs["NSRTRAIDUTILITY_NEW_ROSTER"] = {
     hasEditBox = true,
     maxLetters = 40,
     OnShow = function(dialog)
-        local box = dialog.EditBox or dialog.editBox
+        local box = dialog.EditBox
         if box then
             box:SetText("")
             box:SetFocus()
@@ -37,6 +38,50 @@ StaticPopupDialogs["NSRTRAIDUTILITY_NEW_ROSTER"] = {
     whileDead = true,
     hideOnEscape = true,
 }
+
+-- A name popup prefilled by fill(); accept(name) returns true when it worked
+local function NamePopup(text, fill, accept)
+    local function Accept(dialog)
+        local box = dialog.EditBox
+        if box and accept(box:GetText()) then RaidUtility:RefreshUI() end
+    end
+    return {
+        text = text,
+        button1 = ACCEPT,
+        button2 = CANCEL,
+        hasEditBox = true,
+        maxLetters = 40,
+        OnShow = function(dialog)
+            local box = dialog.EditBox
+            if box then
+                box:SetText(fill())
+                box:SetFocus()
+                box:HighlightText()
+            end
+        end,
+        OnAccept = Accept,
+        EditBoxOnEnterPressed = function(box)
+            local dialog = box:GetParent()
+            Accept(dialog)
+            dialog:Hide()
+        end,
+        EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+end
+
+StaticPopupDialogs["NSRTRAIDUTILITY_RENAME_ROSTER"] = NamePopup(
+    L["New name for this roster:"],
+    function() return RaidUtility.db.active end,
+    function(name) return RaidUtility:RenameRoster(name) end
+)
+StaticPopupDialogs["NSRTRAIDUTILITY_DUPLICATE_ROSTER"] = NamePopup(
+    L["Name for the copy:"],
+    function() return L["%s copy"]:format(RaidUtility.db.active) end,
+    function(name) return RaidUtility:DuplicateRoster(name) end
+)
 
 StaticPopupDialogs["NSRTRAIDUTILITY_DELETE_ROSTER"] = {
     text = L['Delete roster "%s"?'],
@@ -65,21 +110,19 @@ StaticPopupDialogs["NSRTRAIDUTILITY_DISCARD"] = {
 
 -- Replaces the draft with the imported roster; the dirty check happens first so nothing is lost silently
 local function AcceptImport(dialog)
-    local box = dialog.EditBox or dialog.editBox
+    local box = dialog.EditBox
     local roster, overflow = RaidUtility:ImportText(box and box:GetText() or "")
     if not roster then
         Print(overflow)
         return
     end
-    RaidUtility:ConfirmDiscard(function()
-        RaidUtility.draft = roster
-        RaidUtility:MarkDirty()
-        RaidUtility:RefreshUI()
-        local count = 0
-        RaidUtility.ForEachEntry(roster, function() count = count + 1 end)
-        Print(L["Imported %d name(s) into the draft."]:format(count))
-        if overflow > 0 then Print(L["%d name(s) beyond slot 40 were ignored."]:format(overflow)) end
-    end)
+    RaidUtility.draft, RaidUtility.draftSplit = roster, false
+    RaidUtility:MarkDirty()
+    RaidUtility:RefreshUI()
+    local count = 0
+    RaidUtility.ForEachEntry(roster, function() count = count + 1 end)
+    Print(L["Imported %d name(s). Save to keep them."]:format(count))
+    if overflow > 0 then Print(L["%d name(s) beyond slot 40 were ignored."]:format(overflow)) end
 end
 
 local importText = "Paste an NSRT invite list (invitelist: a, b, c) or a plain list of names, "
@@ -93,7 +136,7 @@ StaticPopupDialogs["NSRTRAIDUTILITY_IMPORT"] = {
     hasEditBox = true,
     maxLetters = 2000,
     OnShow = function(dialog)
-        local box = dialog.EditBox or dialog.editBox
+        local box = dialog.EditBox
         if box then
             box:SetText("")
             box:SetFocus()
@@ -134,16 +177,23 @@ local BENCH_COL_W = 112
 local BENCH_SLOT_W = 108
 local BENCH_ROWS = 17
 local BENCH_SLOTS = 40
-local MESSAGES = 2 -- recent results shown under the grid
+local HISTORY = 40 -- messages kept for the History popup
 
--- Text and color for a slot: class color and role icon for group members (solo, that's you), grey and a tag
--- for typed names that aren't in the group (only while you are in one; offline planning shows plain names)
+-- Text and color for a slot: class color and role icon for group members (solo, that's you), grey for typed
+-- names that aren't in the group (only while you are in one; offline planning shows plain names). The fourth
+-- return is true for that grey "not in your group" case; the tooltip says it, so the name keeps its width.
+-- A name the damage meter knows (someone not in the group) gets the class and role the meter saw: full color when
+-- planning solo, still grey in a group, where "not in your group" matters. The fifth return is the meter's player.
 local function SlotLabel(entry, members)
     if entry == "" then return L["empty"], 0.4, 0.4, 0.4 end
     local member = RaidUtility:ResolveGroupMember(entry, members)
     if not member then
-        if not RaidUtility.InGroup() then return entry, 1, 1, 1 end
-        return L["%s (not in group)"]:format(entry), 0.55, 0.55, 0.55
+        local seen = RaidUtility.meter and RaidUtility.meter.byName[RaidUtility.Trim(entry):lower()]
+        local text = seen and ROLE_ICON[seen.role] and (ROLE_ICON[seen.role] .. " " .. entry) or entry
+        if RaidUtility.InGroup() then return text, 0.55, 0.55, 0.55, true, seen end
+        local c = seen and seen.class and RAID_CLASS_COLORS[seen.class]
+        if c then return text, c.r, c.g, c.b, false, seen end
+        return text, 1, 1, 1, false, seen
     end
     local text = ROLE_ICON[RaidUtility:MemberRole(member)] .. " " .. entry
     local c = member.class and RAID_CLASS_COLORS[member.class]
@@ -167,10 +217,37 @@ local function SlotAmount(entry, members)
     return value and Widgets.Short(value) or ""
 end
 
+-- Markers take no name width: a pin is a colored bar on the left edge (the side's color), Power Infusion is its
+-- spell icon on the right (dimmed on the priest giving it). Details are in the slot's tooltip.
 local function ShowEntry(slot, entry, members)
-    local text, r, g, b = SlotLabel(entry, members)
+    local text, r, g, b, absent, seen = SlotLabel(entry, members)
+    local tips = {}
+    if absent then tips[#tips + 1] = L["Not in your group."] end
+    if seen then
+        local spec = seen.specID and select(2, GetSpecializationInfoByID(seen.specID))
+        tips[#tips + 1] = spec and L["%s, from the damage meter."]:format(spec) or L["Class from the damage meter."]
+    end
     local pin = RaidUtility:PinOf(entry, members)
-    if pin then text = "|cFF66CCFF[" .. (pin == 1 and "A" or "B") .. "]|r " .. text end
+    if pin then
+        slot.pinBar:SetColorTexture(SIDE_COLOR[pin][1], SIDE_COLOR[pin][2], SIDE_COLOR[pin][3], 0.9)
+        slot.pinBar:Show()
+        tips[#tips + 1] = L["Pinned to side %s for Generate split."]:format(pin == 1 and "A" or "B")
+    else
+        slot.pinBar:Hide()
+    end
+    local member = entry ~= "" and RaidUtility:EntrySource(entry, members, RaidUtility.meter)
+    local tag = member and RaidUtility.ui.piTags[member.key] or nil -- nil, never false: "no tag" either way
+    slot.piIcon:SetShown(tag ~= nil)
+    slot.amount:ClearAllPoints()
+    slot.amount:SetPoint("RIGHT", tag and -24 or -6, 0)
+    if tag then
+        -- full color on a target, dimmed on a priest who only gives it
+        local shade = tag.gets and 1 or 0.5
+        slot.piIcon:SetVertexColor(shade, shade, shade)
+        if tag.gets then tips[#tips + 1] = L["Gets Power Infusion from %s."]:format(tag.gets) end
+        if tag.gives then tips[#tips + 1] = L["Gives Power Infusion to %s."]:format(tag.gives) end
+    end
+    slot.tooltip = #tips > 0 and table.concat(tips, "\n") or nil
     slot.text:SetText(text)
     slot.text:SetTextColor(r, g, b)
     slot.amount:SetText(SlotAmount(entry, members))
@@ -272,6 +349,44 @@ local function OnDragStop(slot)
     if src then Drop(src, FindDropTarget(), value) end
 end
 
+-- The window can close mid-drag (Escape), and then no drop arrives: put the drag back the way it was
+local function ResetDrag()
+    if ghost then ghost:Hide() end
+    local source = RaidUtility.dragSource
+    if source then source:SetAlpha(1) end
+    RaidUtility.dragSource, RaidUtility.dragValue, RaidUtility.dragGroup = nil, nil, nil
+end
+
+-- Group headers drag whole groups: drop on another group's header or any of its slots to swap the two groups
+local function GroupUnderMouse()
+    local ui = RaidUtility.ui
+    for g, handle in ipairs(ui.headerHandles) do
+        if handle:IsMouseOver() then return g end
+    end
+    for _, slot in ipairs(ui.groupSlots) do
+        if slot:IsVisible() and slot:IsMouseOver() then return slot.g end
+    end
+end
+
+local function OnGroupDragStart(handle)
+    RaidUtility.dragGroup = handle.g
+    local g = GetGhost()
+    g.text:SetText(L["Group %d"]:format(handle.g))
+    g.text:SetTextColor(1, 0.82, 0)
+    g:Show()
+end
+
+local function OnGroupDragStop()
+    if ghost then ghost:Hide() end
+    local from, to = RaidUtility.dragGroup, GroupUnderMouse()
+    RaidUtility.dragGroup = nil
+    if not (from and to) or from == to then return end
+    local d = RaidUtility.draft
+    d[from], d[to] = d[to], d[from]
+    RaidUtility:MarkDirty()
+    RaidUtility:RefreshUI()
+end
+
 -- Double-clicking an unplaced member puts them in the first empty slot
 local function PlaceInFirstEmpty(slot)
     local d = RaidUtility.draft
@@ -362,6 +477,16 @@ local function CreateSlot(parent, kind, w, h)
     b:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
     b:SetBackdropColor(0, 0, 0, 0.35)
     b:SetBackdropBorderColor(1, 1, 1, 0.08)
+    b.pinBar = b:CreateTexture(nil, "ARTWORK")
+    b.pinBar:SetPoint("TOPLEFT", 1, -1)
+    b.pinBar:SetPoint("BOTTOMLEFT", 1, 1)
+    b.pinBar:SetWidth(3)
+    b.pinBar:Hide()
+    b.piIcon = b:CreateTexture(nil, "ARTWORK")
+    b.piIcon:SetTexture(Widgets.PI_ICON)
+    b.piIcon:SetSize(h - 6, h - 6)
+    b.piIcon:SetPoint("RIGHT", -4, 0)
+    b.piIcon:Hide()
     -- the name ends where the meter number starts, so long names are cut off instead of running under it
     b.amount = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     b.amount:SetPoint("RIGHT", -6, 0)
@@ -375,8 +500,18 @@ local function CreateSlot(parent, kind, w, h)
     b:RegisterForDrag("LeftButton")
     b:SetScript("OnDragStart", OnDragStart)
     b:SetScript("OnDragStop", OnDragStop)
-    b:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(0, 1, 1, 0.6) end)
-    b:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(1, 1, 1, 0.08) end)
+    b:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(0, 1, 1, 0.6)
+        if self.tooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(self.tooltip, 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    b:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(1, 1, 1, 0.08)
+        if self.tooltip then GameTooltip:Hide() end
+    end)
     if kind == "group" then
         b:SetScript("OnClick", function(self, button)
             if button == "RightButton" and IsShiftKeyDown() then
@@ -408,11 +543,198 @@ end
 -- ------------------------------------------------------------
 -- Build tab
 -- ------------------------------------------------------------
-local function RefreshResult(ui) ui.result:SetText(RaidUtility.Preview.Banner() .. table.concat(ui.messages, "\n")) end
+-- The result line: the newest message, and how many more came with it (all of them are in History). Messages
+-- printed in the same frame belong to one action (a split prints several notes at once).
+local function RefreshResult(ui)
+    local banner = RaidUtility.Preview.Banner()
+    local latest = ui.log[#ui.log] or ""
+    if #ui.batch > 1 then
+        latest = latest .. "  |cFF999999" .. L["(+%d more in History)"]:format(#ui.batch - 1) .. "|r"
+    end
+    ui.result:SetText(banner ~= "" and (banner .. "\n" .. latest) or latest)
+    if #ui.log > 0 then
+        ui.historyButton:Enable()
+    else
+        ui.historyButton:Disable()
+    end
+    if ui.history and ui.history:IsShown() then
+        ui.history.text:SetText(table.concat(ui.log, "\n"))
+        ui.history.content:SetHeight(math.max(200, (ui.history.text:GetStringHeight() or 0) + 8))
+    end
+end
 
-function RaidUtility:BuildRosterTab(frame, NSI)
-    local C = NSI.UI.Components
-    local ui = { frame = frame, groupSlots = {}, benchSlots = {}, headers = {}, messages = {} }
+-- Every recent message, scrollable: the full notes of a split, PI pairings, and so on
+local function ShowHistory(frame, C)
+    local ui = RaidUtility.ui
+    local panel = ui.history
+    if not panel then
+        panel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+        ui.history = panel
+        panel:SetSize(640, 290)
+        panel:SetPoint("CENTER", frame, "CENTER")
+        panel:SetFrameStrata("DIALOG")
+        panel:EnableMouse(true)
+        panel:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 2 })
+        panel:SetBackdropColor(0.06, 0.08, 0.11, 0.98)
+        panel:SetBackdropBorderColor(0, 0.7, 0.85)
+        local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -12)
+        title:SetText(L["History (newest last)"])
+        local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -34)
+        scroll:SetSize(588, 206)
+        local content = CreateFrame("Frame", nil, scroll)
+        content:SetSize(588, 200)
+        scroll:SetScrollChild(content)
+        panel.text = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        panel.text:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+        panel.text:SetWidth(580)
+        panel.text:SetJustifyH("LEFT")
+        panel.content, panel.scroll = content, scroll
+        local close = C.CreateButton(panel, L["Close"], function() panel:Hide() end, 90, 24)
+        close:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -14, 12)
+    end
+    panel:Show()
+    RefreshResult(ui)
+    panel.scroll:SetVerticalScroll(panel.scroll:GetVerticalScrollRange()) -- newest at the bottom
+end
+
+local function ShowExchange(frame, C)
+    local panel = RaidUtility.ui.exchange
+    if panel then
+        panel:Show()
+        return
+    end
+    panel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    RaidUtility.ui.exchange = panel
+    panel:SetSize(700, 360)
+    panel:SetPoint("CENTER", frame, "CENTER")
+    panel:SetFrameStrata("DIALOG")
+    panel:EnableMouse(true)
+    panel:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 2 })
+    panel:SetBackdropColor(0.06, 0.08, 0.11, 0.98)
+    panel:SetBackdropBorderColor(0, 0.7, 0.85)
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -14)
+    title:SetText(L["Import / export"])
+    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hint:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -37)
+    hint:SetWidth(660)
+    hint:SetJustifyH("LEFT")
+    local hintText = "WoWUtils exports keep group slots. WoWAudit encounter lists contain names only; "
+        .. "importing fills slots in order."
+    hint:SetText(L[hintText])
+    local status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    status:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -257)
+    status:SetWidth(665)
+    status:SetJustifyH("LEFT")
+    local pasteHint = L["Paste a WoWAudit encounter export above, or use an export button to select text for copying."]
+    status:SetText(pasteHint)
+
+    local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -77)
+    scroll:SetSize(646, 172)
+    local box = CreateFrame("EditBox", nil, scroll)
+    panel.box = box
+    box:SetWidth(626)
+    box:SetHeight(172)
+    box:SetMultiLine(true)
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(0)
+    box:SetFontObject(GameFontHighlightSmall)
+    box:SetScript("OnEscapePressed", function() panel:Hide() end)
+    box:SetScript("OnTextChanged", function()
+        panel.selected = nil
+        box:SetHeight(math.max(172, box:GetNumLines() * 14 + 16))
+        status:SetText(pasteHint)
+    end)
+    scroll:SetScrollChild(box)
+
+    local encounters = {}
+    local picker = C.CreateDropdown(panel, L["Encounter"], function()
+        encounters = RaidUtility:WoWAuditEncounters(box:GetText())
+        local items = {}
+        for i, encounter in ipairs(encounters) do
+            items[#items + 1] = {
+                label = L["%1$s (%2$s)"]:format(encounter.name, encounter.difficulty),
+                value = i,
+                onclick = function() panel.selected = i end,
+            }
+        end
+        return items
+    end, function()
+        local encounter = encounters[panel.selected]
+        return encounter and L["%1$s (%2$s)"]:format(encounter.name, encounter.difficulty) or L["Select encounter"]
+    end, 260)
+    picker:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -281)
+    panel.picker = picker
+
+    local function Button(text, x, y, w, fn)
+        local button = C.CreateButton(panel, text, fn, w, 24)
+        button:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+        return button
+    end
+    panel.import = Button(L["Import encounter"], 300, -281, 160, function()
+        local choices = RaidUtility:WoWAuditEncounters(box:GetText())
+        local index = panel.selected or (#choices == 1 and 1)
+        if not index then
+            RaidUtility.Print(L["Select a WoWAudit encounter to import."])
+            return
+        end
+        local roster, overflow = RaidUtility:ImportWoWAuditEncounter(choices[index])
+        if not roster then
+            RaidUtility.Print(overflow)
+            return
+        end
+        RaidUtility.draft, RaidUtility.draftSplit = roster, false
+        RaidUtility:MarkDirty()
+        RaidUtility:RefreshUI()
+        panel:Hide()
+        local count = 0
+        RaidUtility.ForEachEntry(roster, function() count = count + 1 end)
+        RaidUtility.Print(L["Imported %d name(s). Save to keep them."]:format(count))
+        if overflow > 0 then RaidUtility.Print(L["%d name(s) beyond slot 40 were ignored."]:format(overflow)) end
+        RaidUtility.Print(L["WoWAudit invite lists do not include raid group positions."])
+    end)
+    Button(L["Close"], 565, -281, 105, function() panel:Hide() end)
+    Button(L["Import NSRT list"], 16, -321, 145, function()
+        panel:Hide()
+        StaticPopup_Show("NSRTRAIDUTILITY_IMPORT")
+    end)
+    Button(L["Export NSRT list"], 171, -321, 155, function()
+        box:SetText(RaidUtility:ExportWoWUtils(RaidUtility.draft))
+        box:SetFocus()
+        box:HighlightText()
+        status:SetText(L["Copy this list, group positions included, anywhere that takes an NSRT invite list."])
+    end)
+    Button(L["Export WoWAudit"], 336, -321, 165, function()
+        local text, err = RaidUtility:ExportWoWAuditRaid()
+        if not text then
+            RaidUtility.Print(err)
+            return
+        end
+        box:SetText(text)
+        box:SetFocus()
+        box:HighlightText()
+        status:SetText(
+            L["Copy this live group snapshot into a WoWAudit raid plan; it does not include group positions."]
+        )
+    end)
+end
+
+-- C: NSRT's widget library (NSI.UI.Components), from Core's tab injection
+function RaidUtility:BuildRosterTab(frame, C)
+    local ui = {
+        frame = frame,
+        groupSlots = {},
+        benchSlots = {},
+        headers = {},
+        headerHandles = {},
+        log = {},
+        batch = {},
+        reasons = {}, -- NSRT button -> why it's disabled (see SetEnabled)
+    }
     self.ui = ui
 
     -- Row 1: roster picker, new/delete, save/revert
@@ -436,30 +758,65 @@ function RaidUtility:BuildRosterTab(frame, NSI)
     end, function() return self.db.active end, 300)
     ui.dropdown:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -10)
 
-    TopButton(C, frame, L["New roster"], 330, 120, function()
+    -- a button's tooltip: what it does (a string, or a function for live text), and why it's off when it is
+    local function Explain(button, tip)
+        Widgets.Tooltip(button.frame, function()
+            local base = type(tip) == "function" and tip() or tip
+            local reason = ui.reasons[button]
+            if not reason then return base end
+            return (base and base .. "\n\n" or "") .. "|cFFFF6060" .. reason .. "|r"
+        end)
+    end
+    local newButton = TopButton(C, frame, L["New"], 320, 70, function()
         self:ConfirmDiscard(function() StaticPopup_Show("NSRTRAIDUTILITY_NEW_ROSTER") end)
     end)
-    TopButton(
+    Explain(newButton, L["Start an empty roster."])
+    ui.duplicateButton = TopButton(
         C,
         frame,
-        L["Delete roster"],
-        455,
-        120,
+        L["Duplicate"],
+        395,
+        90,
+        function() StaticPopup_Show("NSRTRAIDUTILITY_DUPLICATE_ROSTER") end
+    )
+    Explain(ui.duplicateButton, L["Copy this roster, unsaved changes included, to a new one (e.g. one per boss)."])
+    ui.renameButton = TopButton(
+        C,
+        frame,
+        L["Rename"],
+        490,
+        80,
+        function() StaticPopup_Show("NSRTRAIDUTILITY_RENAME_ROSTER") end
+    )
+    Explain(ui.renameButton, L["Rename this roster."])
+    local deleteButton = TopButton(
+        C,
+        frame,
+        L["Delete"],
+        575,
+        75,
         function() StaticPopup_Show("NSRTRAIDUTILITY_DELETE_ROSTER", self.db.active, nil, self.db.active) end
     )
-    ui.saveButton = TopButton(C, frame, L["Save"], 605, 90, function()
+    Explain(deleteButton, L["Delete this roster (asks first)."])
+    ui.saveButton = TopButton(C, frame, L["Save"], 665, 70, function()
         self:SaveDraft()
         self:RefreshUI()
     end)
-    ui.revertButton = TopButton(C, frame, L["Revert"], 700, 90, function()
+    Explain(ui.saveButton, L["Save your changes to this roster."])
+    ui.undoButton = TopButton(C, frame, L["Undo"], 740, 70, function()
+        if self:Undo() then self:RefreshUI() end
+    end)
+    Explain(ui.undoButton, L["Undo your last change (up to 20 steps)."])
+    ui.revertButton = TopButton(C, frame, L["Revert"], 815, 75, function()
         self:ConfirmDiscard(function()
             self:LoadDraft()
             self:RefreshUI()
         end)
     end)
+    Explain(ui.revertButton, L["Go back to the last save."])
 
     ui.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ui.status:SetPoint("TOPLEFT", frame, "TOPLEFT", 805, -14)
+    ui.status:SetPoint("TOPLEFT", frame, "TOPLEFT", 900, -14)
 
     -- Row 2: what changes the draft, then what acts on the live group (both use the draft, not the saved roster)
     -- Controls are laid out left to right, so widening one moves the rest along. NSRT buttons keep the width
@@ -480,68 +837,76 @@ function RaidUtility:BuildRosterTab(frame, NSI)
     local function Action(text, w, tooltip, fn)
         local b = C.CreateButton(frame, text, fn, w, 24)
         b:SetPoint("TOPLEFT", frame, "TOPLEFT", Next(w), ACTIONS_Y)
-        Widgets.Tooltip(b.frame, tooltip)
+        Explain(b, tooltip)
         return b
     end
-    Label(L["Edit draft:"], 62)
-    ui.fillButton = Action(
-        L["Fill from raid"],
-        110,
-        L["Replace the draft with your group's current layout."],
-        function()
-            self:ConfirmDiscard(function()
-                if self:FillFromRaid(self.draft) then
-                    self:MarkDirty()
-                    self:RefreshUI()
-                end
-            end)
-        end
-    )
-    local splitTip = "Balance the raid into two sides by role and the Overall damage meter session. "
-        .. "Out of combat only."
-    ui.splitButton = Action(L["Generate split"], 135, L[splitTip], function() self:GenerateSplit() end)
-    ui.splitTarget = C.CreateCheckButton(
-        frame,
-        L["As new roster"],
-        function() return self.db.splitToNewRoster end,
-        function(_, value) self.db.splitToNewRoster = value end,
-        125,
-        24
-    )
-    ui.splitTarget:SetPoint("TOPLEFT", frame, "TOPLEFT", Next(125), ACTIONS_Y)
-    local targetTip = "Checked: Generate split creates a new roster. Unchecked: it replaces this draft, "
-        .. "and you Save to keep it."
-    Widgets.Tooltip(ui.splitTarget.frame, L[targetTip])
-    local importTip = "Paste an NSRT invite list or plain names into the draft, slot by slot."
-    Action(L["Import list"], 95, L[importTip], function() StaticPopup_Show("NSRTRAIDUTILITY_IMPORT") end)
-    ui.clearButton = Action(L["Clear all"], 80, L["Empty all 8 groups in the draft."], function()
-        self:ConfirmDiscard(function()
-            self.draft = self.NewRoster()
+    Label(L["Edit:"], 62)
+    ui.fillButton = Action(L["Fill from raid"], 110, L["Copy your group's current layout into this roster."], function()
+        if self:FillFromRaid(self.draft) then
+            self.draftSplit = false
             self:MarkDirty()
             self:RefreshUI()
-        end)
+        end
+    end)
+    local splitTip = "Choose how to split the raid into two balanced sides, then generate the split."
+    ui.splitButton = Action(L["Split raid..."], 120, L[splitTip], function() self:ToggleSplitSetup() end)
+    local exchangeTip = "Import NSRT or WoWUtils lists, import WoWAudit encounters, or export for copying."
+    Action(L["Import/Export"], 115, L[exchangeTip], function() ShowExchange(frame, C) end)
+    ui.clearButton = Action(L["Clear all"], 80, L["Empty all 8 groups."], function()
+        self.draft, self.draftSplit = self.NewRoster(), false
+        self:MarkDirty()
+        self:RefreshUI()
     end)
     rowX = rowX + 12 -- gap between the two groups
     Label(L["Raid:"], 38)
-    local inviteTip = "Invite the players on this draft who aren't in your group. /nru invite uses the saved roster."
-    ui.inviteButton = Action(L["Invite missing"], 120, L[inviteTip], function() self:InviteMissing(self.draft) end)
-    local arrangeTip = "Move raid members into the groups on this draft. /nru arrange uses the saved roster."
-    ui.arrangeButton = Action(L["Arrange draft"], 125, L[arrangeTip], function() self:Arrange(nil, self.draft) end)
+    local inviteTip = "Invite everyone on this roster who isn't in your group, unsaved changes included. "
+        .. "/nru invite uses the saved roster."
+    -- the tooltip lists who would get an invite, so nobody is surprised by one
+    ui.inviteButton = Action(L["Invite missing"], 120, function()
+        local list = self:MissingInvites(self.draft, ui.members)
+        if #list == 0 then return L[inviteTip] end
+        local shown = {}
+        for i = 1, math.min(5, #list) do
+            shown[i] = list[i]
+        end
+        local who = table.concat(shown, ", ") .. (#list > 5 and " " .. L["+%d more"]:format(#list - 5) or "")
+        return L[inviteTip] .. "\n\n" .. L["Would invite: %s"]:format(who)
+    end, function() self:InviteMissing(self.draft) end)
+    local arrangeTip = "Sort the raid into these groups, unsaved changes included. /nru arrange uses the saved roster."
+    ui.arrangeButton = Action(L["Sort groups"], 125, L[arrangeTip], function() self:Arrange(nil, self.draft) end)
+    local piTip = "List who should get Power Infusion and move each priest into their target's group (/nru pi)."
+    ui.piButton = Action(L["Power Infusion"], 130, L[piTip], function() self:PowerInfusion() end)
 
+    -- a one-line legend, and what the slot numbers are (more in each slot's tooltip)
     local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, HINT_Y)
     hint:SetWidth(780)
     hint:SetJustifyH("LEFT")
-    local hintText = "Drag to move or swap. Click an empty slot or double-click a name to type (Tab moves on). "
-        .. "Right-click clears; Shift-right-click pins a player to side A or B for Generate split. "
-        .. "Double-click an unplaced player to add them. Grey names aren't in your group."
+    hint:SetWordWrap(false)
+    local hintText = "Drag: move or swap.  Click empty / double-click: type.  Right-click: clear.  "
+        .. "Shift-right-click: pin to side A/B.  Grey: not in your group."
     hint:SetText(L[hintText])
+    ui.caption = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    ui.caption:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, HINT_Y - 14)
+    ui.caption:SetWidth(780)
+    ui.caption:SetJustifyH("LEFT")
+    ui.caption:SetWordWrap(false)
 
     for g = 1, 8 do
         local col, row = (g - 1) % 4, math.floor((g - 1) / 4)
         local x, y = 10 + col * GROUP_COL_W, GRID_Y - row * BLOCK_H
-        local header = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
+        -- the header is a handle: drag it onto another group to swap all five players
+        local handle = CreateFrame("Button", nil, frame)
+        handle:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y + 2)
+        handle:SetSize(SLOT_W, 16)
+        handle:RegisterForDrag("LeftButton")
+        handle.g = g
+        handle:SetScript("OnDragStart", OnGroupDragStart)
+        handle:SetScript("OnDragStop", OnGroupDragStop)
+        Widgets.Tooltip(handle, L["Drag onto another group to swap the two groups."])
+        ui.headerHandles[g] = handle
+        local header = handle:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        header:SetPoint("TOPLEFT", handle, "TOPLEFT", 0, -2)
         ui.headers[g] = header
         for s = 1, 5 do
             local slot = CreateSlot(frame, "group", SLOT_W, SLOT_H)
@@ -597,28 +962,85 @@ function RaidUtility:BuildRosterTab(frame, NSI)
     ui.editor = CreateEditor(frame)
 
     self:BuildBalanceStrip(frame, C, BALANCE_Y)
+    self:BuildSplitSetup(frame, C, ui.splitButton.frame)
 
-    -- Results of the last actions (also printed to chat), under the preview banner when that is on
+    -- Results (also printed to chat): the newest one under the strip, all recent ones in History
     ui.result = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     ui.result:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, BALANCE_Y - 64)
-    ui.result:SetWidth(780)
+    ui.result:SetWidth(580)
     ui.result:SetJustifyH("LEFT")
+    ui.result:SetWordWrap(false)
+    ui.postButton = C.CreateButton(frame, L["Post to raid"], function() self:PostAssignments() end, 95, 20)
+    ui.postButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 600, BALANCE_Y - 62)
+    Explain(ui.postButton, function()
+        local lines = self:AssignmentLines(ui.piPairs)
+        if #lines == 0 then return L["Send the split sides and PI assignments to raid chat."] end
+        return L["Sends to raid chat:"] .. "\n" .. table.concat(lines, "\n")
+    end)
+    ui.historyButton = C.CreateButton(frame, L["History"], function() ShowHistory(frame, C) end, 90, 20)
+    ui.historyButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 700, BALANCE_Y - 62)
     self.OnMessage = function(msg)
-        table.insert(ui.messages, msg)
-        if #ui.messages > MESSAGES then table.remove(ui.messages, 1) end
+        local now = GetTime()
+        if now ~= ui.batchTime then
+            ui.batch, ui.batchTime = {}, now
+        end
+        table.insert(ui.batch, msg)
+        table.insert(ui.log, msg)
+        if #ui.log > HISTORY then table.remove(ui.log, 1) end
         RefreshResult(ui)
     end
 
-    frame.RefreshOptions = function() self:RefreshUI(true) end -- NSRT calls this on tab select
+    frame:HookScript("OnHide", ResetDrag) -- our own frame, but NSRT shows and hides it with its tabs
+    -- NSRT calls this on tab select; the setup panel starts closed each time the tab comes back
+    frame.RefreshOptions = function()
+        ui.setup:Hide()
+        self:RefreshUI(true)
+    end
     self:RefreshUI(true)
 end
 
-local function SetEnabled(button, enabled)
+-- reason: shown in the button's tooltip while it's off. Kept in ui.reasons, not on NSRT's button object.
+local function SetEnabled(button, enabled, reason)
+    RaidUtility.ui.reasons[button] = not enabled and reason or nil
     if enabled then
         button:Enable()
     else
         button:Disable()
     end
+end
+
+local function ColorCode(rgb) return format("|cFF%02X%02X%02X", rgb[1] * 255, rgb[2] * 255, rgb[3] * 255) end
+
+-- What the slot numbers are, for the caption above the grid
+local function NumbersCaption(self)
+    if not self.meter or not next(self.meter.players) then
+        return L["Slot numbers show DPS (HPS for healers) once the damage meter has data."]
+    end
+    local source = self.db.splitMeterSource
+    local text
+    if source == "lastfight" then
+        text = L["Slot numbers: DPS (HPS for healers) in the last fight."]
+    elseif source == "roles" then
+        text = L["Slot numbers: Overall DPS (HPS for healers). The split ignores them (Balance on: Roles only)."]
+    else
+        text = L["Slot numbers: DPS (HPS for healers) over the damage meter's Overall session."]
+    end
+    -- a clock time rather than "N min ago", which would go stale between refreshes
+    if self.meterTime then text = text .. " " .. L["Read at %s."]:format(self.meterTime) end
+    return text
+end
+
+-- In combat the raid actions can't run (sorting, splitting and reading the meter refuse), so their buttons say so.
+-- inCombat: PLAYER_REGEN_DISABLED fires just before InCombatLockdown() turns true, so the event passes it in.
+function RaidUtility:ApplyCombatLock(inCombat)
+    local ui = self.ui
+    if not (ui and ui.frame:IsVisible()) or not (inCombat or InCombatLockdown()) then return end
+    local reason = L["Not in combat."]
+    local locked = { ui.arrangeButton, ui.splitButton, ui.generateButton, ui.piButton, ui.fillButton, ui.inviteButton }
+    for _, button in ipairs(locked) do
+        SetEnabled(button, false, reason)
+    end
+    ui.setup:Hide()
 end
 
 -- readMeter: take a fresh damage meter reading (tab shown, group changed, combat ended). Edits and drags reuse
@@ -628,9 +1050,14 @@ function RaidUtility:RefreshUI(readMeter)
     local ui = self.ui
     if not ui then return end
     local d = self.draft
-    local members = self.GetGroupMembers()
+    -- names can be hidden in combat, so keep the group as it was before the fight; it's re-read when combat ends
+    local inCombat = InCombatLockdown()
+    local members = inCombat and ui.members or self.GetGroupMembers()
     ui.members = members
-    if readMeter and not InCombatLockdown() then self.meter = (self:ReadMeter(members)) end
+    if readMeter and not InCombatLockdown() then self:SetMeterReading((self:ReadMeter(members))) end
+    local piPairs
+    ui.piTags, piPairs = self:PITags(members) -- the pairs are reused below, so they're worked out once
+    ui.piPairs = piPairs -- and by Post to raid, which may be clicked in combat
 
     local filled, total = {}, 0
     for _, slot in ipairs(ui.groupSlots) do
@@ -645,11 +1072,22 @@ function RaidUtility:RefreshUI(readMeter)
     local sideOf = self:RefreshBalance(members)
     for g, header in ipairs(ui.headers) do
         local text = L["Group %1$d (%2$d/5)"]:format(g, filled[g] or 0)
-        if sideOf and sideOf[g] then text = text .. "  |cFF66CCFF" .. (sideOf[g] == 1 and "A" or "B") .. "|r" end
+        if sideOf and sideOf[g] then
+            text = text .. "  " .. ColorCode(SIDE_COLOR[sideOf[g]]) .. (sideOf[g] == 1 and "A" or "B") .. "|r"
+        end
         header:SetText(text)
     end
 
-    local list = self:GetUnassigned(d, members)
+    -- tanks, then healers, then damage: raid leads look for "the healer I haven't placed"
+    local list, rank = self:GetUnassigned(d, members), {}
+    for _, name in ipairs(list) do
+        local member = self:ResolveGroupMember(name, members)
+        rank[name] = member and self.ROLE_ORDER[self:MemberRole(member)] or 4
+    end
+    table.sort(list, function(x, y)
+        if rank[x] ~= rank[y] then return rank[x] < rank[y] end
+        return x:lower() < y:lower()
+    end)
     for i, slot in ipairs(ui.benchSlots) do
         local name = list[i]
         slot.value = name
@@ -671,14 +1109,28 @@ function RaidUtility:RefreshUI(readMeter)
     ui.benchHeader:SetText(benchTitle:format(#list))
     ui.benchEmpty:SetText(#list == 0 and (inGroup and L["Everyone is placed."] or L["Not in a group."]) or "")
 
-    SetEnabled(ui.saveButton, self.dirty)
-    SetEnabled(ui.revertButton, self.dirty)
-    SetEnabled(ui.fillButton, inGroup)
-    SetEnabled(ui.splitButton, inRaid)
-    SetEnabled(ui.clearButton, total > 0)
-    SetEnabled(ui.inviteButton, total > 0)
-    SetEnabled(ui.arrangeButton, inRaid and total > 0)
-    ui.splitTarget:SetValue(self.db.splitToNewRoster)
+    local noRaid, empty = L["Join a raid first (or try /nru preview)."], L["This roster is empty."]
+    local leads = self.Preview.IsActive() or UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
+    SetEnabled(ui.saveButton, self.dirty, L["No unsaved changes."])
+    SetEnabled(ui.undoButton, self:CanUndo(), L["Nothing to undo."])
+    local nothingToPost = L["Nothing to post: generate a split, or turn on Group priests with PI targets."]
+    local chatBlocked = self.ChatBlocked()
+    local postReason = chatBlocked and L["The game is blocking addon chat right now."] or nothingToPost
+    SetEnabled(ui.postButton, not chatBlocked and #self:AssignmentLines(piPairs) > 0, postReason)
+    SetEnabled(ui.revertButton, self.dirty, L["No unsaved changes."])
+    SetEnabled(ui.fillButton, inGroup, L["Join a group first."])
+    -- out of a raid, the roster's players can still be split (with what the damage meter knows about them)
+    local canSplit, noSplit = inRaid or total > 0, L["Join a raid, or put players on the roster, to split."]
+    SetEnabled(ui.splitButton, canSplit, noSplit)
+    SetEnabled(ui.generateButton, canSplit, noSplit)
+    SetEnabled(ui.clearButton, total > 0, empty)
+    SetEnabled(ui.inviteButton, total > 0, empty)
+    SetEnabled(ui.piButton, total > 0, empty) -- the meter knows players out of a raid too
+    local arrangeReason = not inRaid and noRaid or total == 0 and empty or L["You need to be raid leader or assistant."]
+    SetEnabled(ui.arrangeButton, inRaid and total > 0 and leads, arrangeReason)
+    if not canSplit and ui.setup:IsShown() then ui.setup:Hide() end
+    ui.caption:SetText(inCombat and L["In combat: names and numbers update when combat ends."] or NumbersCaption(self))
+    self:ApplyCombatLock()
 
     RefreshResult(ui)
     ui.status:SetText(self.dirty and "|cFFFF9900" .. L["Unsaved changes"] .. "|r" or "")

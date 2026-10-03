@@ -20,6 +20,8 @@ Import.lua
 RosterUI.lua
 Split.lua
 SplitUI.lua
+PIData.lua
+PI.lua
 Core.lua
 
 #@do-not-package@
