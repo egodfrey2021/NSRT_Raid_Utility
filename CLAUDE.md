@@ -1,4 +1,4 @@
-# Roster for NSRT (folder: NSRT_Extras): project context
+# NSRT Raid Utils (folder: NSRT_Extras): project context
 
 WoW Retail addon (Lua, interface 12.1.0) that adds a **Rosters** tab to the
 Northern Sky Raid Tools (NSRT) options window. Author: Evan.
@@ -57,5 +57,5 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan.
 - Needs repo secret `CF_API_TOKEN` (CurseForge API token).
 - CurseForge project ID 1722253 is in the .toc (`X-Curse-Project-ID`); GitHub repo egodfrey2021/NSRT_Extras.
 - CurseForge Relations: set Northern Sky Raid Tools as a required dependency.
-- Public name: "Roster for NSRT". Folder/SavedVariables stay NSRT_Extras / NSRTExtrasDB so existing data carries over.
+- Public name: "NSRT Raid Utils" (was "Roster for NSRT" up to v1.1.0). Folder/SavedVariables stay NSRT_Extras / NSRTExtrasDB so existing data carries over.
 - Not yet tested in-game beyond basic UI; syntax-checked only.

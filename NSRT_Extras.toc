@@ -1,6 +1,6 @@
 ## Interface: 120100
-## Title: |cFF00FFFFRoster|r for NSRT
-## Notes: Saved raid rosters with auto group sorting, inside the Northern Sky Raid Tools window
+## Title: |cFF00FFFFNSRT|r Raid Utils
+## Notes: Saved raid rosters, group sorting and balanced raid splits, inside the Northern Sky Raid Tools window
 ## Author: Evan
 ## Version: @project-version@
 ## Dependencies: NorthernSkyRaidTools

@@ -1,6 +1,6 @@
 -- Roster data, working draft, and group arranging (uses NSRT's own ArrangeGroups engine)
 local _, Extras = ...
-local PREFIX = "|cFF00FFFFRoster for NSRT:|r "
+local PREFIX = "|cFF00FFFFNSRT Raid Utils:|r "
 
 local function Print(msg) print(PREFIX .. msg) end
 Extras.Print = Print

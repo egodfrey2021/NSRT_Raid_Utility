@@ -1,4 +1,4 @@
-# Roster for NSRT
+# NSRT Raid Utils
 
 Build saved raid rosters inside the **Northern Sky Raid Tools** window and sort your raid into them with one click.
 
