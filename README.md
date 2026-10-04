@@ -20,11 +20,11 @@ You can keep separate rosters for different bosses or comps.
 
 ### Import and export
 
-- **Import NSRT list** accepts NSRT or WoWUtils positional `invitelist:` text, preserving empty slots. It also accepts plain names. **Export NSRT list** copies the draft in the same format.
-- **From damage meter** adds players from the Overall session to empty slots by role and damage or healing. Imported names keep their class, role, and spec when the meter knows them, even if you plan the roster solo.
-- Paste a WoWAudit encounter export and choose an encounter to import its invitees into the draft. That format has names but no group slots, so names fill slots in order. **Export WoWAudit** copies a `raidlist:` of the *live group* with available specs and classes for a WoWAudit raid plan; it does not export the draft or its group layout.
+- Open **Import/Export** and choose **Import** or **Export**. Under Import, choose a source from **Import from**. Selecting one does not change the roster: paste a list to preview it, or choose **Damage meter** and click **Add to draft**. List imports replace the draft (Undo restores it); Damage meter adds players from the Overall session to empty slots without moving placed names. After importing, click **Review roster**, check the draft, then **Save** to keep it.
+- NSRT/WoWUtils positional `invitelist:` text keeps empty slots; plain names also work. A WoWAudit export may contain several encounters: choose one after pasting. WoWAudit invite lists have names but no group positions, so imported names fill slots in order.
+- Under Export, **Export draft as NSRT list** makes a positional list from the open draft. **Export live group for WoWAudit** makes a `raidlist:` snapshot of the real group with available specs and classes, not the draft or its group layout. Select the output and press Ctrl+C to copy it; the addon cannot copy to the clipboard for you.
 
-These tools are under **Import/Export**. WoWUtils exports NSRT lists. Whether its website accepts them for import is unverified; the NSRT-format export is for tools that accept that format.
+WoWUtils exports NSRT lists. Whether its website accepts them for import is unverified; the NSRT-format export is for tools that accept that format.
 
 ### Split the raid and assign PI
 
