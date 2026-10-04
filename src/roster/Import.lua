@@ -141,33 +141,40 @@ function RaidUtility:AddMeterPlayers(roster, members, meter)
     return added, #list - added
 end
 
--- "From damage meter" in the Import dialog: adds to the draft (nothing is removed, so no confirmation)
+-- "Damage meter" in Import: adds to the draft (nothing is removed, so no confirmation)
 function RaidUtility:ImportFromMeter()
     local Print = self.Print
     if InCombatLockdown() then
-        Print(L["Can't read the damage meter in combat."])
-        return
+        local message = L["Can't read the damage meter in combat."]
+        Print(message)
+        return message
     end
     local members = self.GetGroupMembers()
     -- everyone in the Overall session, whichever session the numbers on screen come from
     local meter, err = self:ReadMeter(members, "overall")
     if not meter then
         Print(err)
-        return
+        return err
+    end
+    local messages = {}
+    local function Report(message)
+        Print(message)
+        messages[#messages + 1] = message
     end
     if #meter.players == 0 then
-        Print(L["The damage meter's Overall session has no players yet."])
+        Report(L["The damage meter's Overall session has no players yet."])
     else
         local added, skipped = self:AddMeterPlayers(self.draft, members, meter)
         if added > 0 then
             self:MarkDirty()
-            Print(L["Added %d player(s) from the damage meter. Save to keep them."]:format(added))
+            Report(L["Added %d player(s) from the damage meter. Save to keep them."]:format(added))
         end
         if skipped > 0 then
-            Print(L["The roster is full, so %d player(s) from the damage meter were not added."]:format(skipped))
+            Report(L["The roster is full, so %d player(s) from the damage meter were not added."]:format(skipped))
         elseif added == 0 then
-            Print(L["Everyone the damage meter has seen is already on the roster."])
+            Report(L["Everyone the damage meter has seen is already on the roster."])
         end
     end
     self:RefreshUI(true)
+    return table.concat(messages, "\n")
 end

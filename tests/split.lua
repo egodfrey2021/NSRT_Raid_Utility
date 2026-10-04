@@ -399,15 +399,13 @@ test("From damage meter reports players that don't fit", function()
     utility:LoadDraft()
 end)
 
-test("From damage meter is refused in combat and lives in the Import dialog", function()
+test("From damage meter is refused in combat", function()
     SplitRaid()
-    local dialog = StaticPopupDialogs.NSRTRAIDUTILITY_IMPORT
-    assert(dialog.button3 == "From damage meter" and dialog.OnAlt, "button missing from the Import dialog")
     H.inCombat = true
     utility.draft = utility.NewRoster()
-    dialog.OnAlt()
+    local message = utility:ImportFromMeter()
     H.inCombat = false
-    assert(utility.draft[1][1] == "" and H.LastMessage():find("in combat"), H.LastMessage())
+    assert(utility.draft[1][1] == "" and message:find("in combat") and H.LastMessage():find(message, 1, true))
     utility:LoadDraft()
 end)
 

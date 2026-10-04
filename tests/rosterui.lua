@@ -239,85 +239,149 @@ test("WoWAudit export uses available specs and refuses a preview group", functio
     utility.Preview.Stop()
 end)
 
-local function Import(text)
-    StaticPopupDialogs.NSRTRAIDUTILITY_IMPORT.OnAccept({ EditBox = { GetText = function() return text end } })
-end
-
-test("the import popup replaces a clean draft and reports the count", function()
-    Build({})
-    local popup = StaticPopupDialogs.NSRTRAIDUTILITY_IMPORT
-    assert(popup.hasEditBox and popup.maxLetters >= 2000)
-    utility.draft[1][1] = "Old"
-    Import("x, y, z")
-    assert(utility.draft[1][1] == "x" and utility.draft[1][3] == "z" and utility.dirty)
-    assert(H.LastMessage():find("Imported 3", 1, true), H.LastMessage())
-end)
-
-test("exchange imports the chosen WoWAudit encounter into the draft", function()
-    local ui = Build({})
-    -- The exchange dialog is built when the player requests it.
-    for _, frame in ipairs(H.frames) do
-        if frame.label == "Import/Export" then
-            frame.onClick()
+local function OpenImportExport(names)
+    local ui = Build(names)
+    for i = #H.frames, 1, -1 do
+        local button = H.frames[i]
+        if button.label == "Import/Export" then
+            button.onClick()
             break
         end
     end
-    local panel = ui.exchange
-    assert(panel and panel:IsShown())
-    panel.box:SetText(
+    assert(ui.importExport and ui.importExport:IsShown())
+    return ui.importExport
+end
+
+local function Paste(panel, text)
+    panel.importText:SetText(text)
+    panel.importText.scripts.OnTextChanged()
+end
+
+test("list import previews names and overflow, then replaces the draft in the same panel", function()
+    local panel = OpenImportExport({})
+    assert(panel.importView:IsShown() and not panel.exportView:IsShown())
+    assert(not panel.importList.enabled and not panel.picker:IsShown())
+    utility.draft[1][1] = "Old"
+    utility:MarkDirty()
+    local names = {}
+    for i = 1, 41 do
+        names[i] = "Name" .. i
+    end
+    Paste(panel, table.concat(names, ", "))
+    assert(panel.importList.enabled and panel.preview.text:find("40 name(s) ready", 1, true))
+    assert(panel.preview.text:find("1 beyond slot 40", 1, true))
+    panel.importList.onClick()
+    assert(panel:IsShown() and utility.draft[1][1] == "Name1" and utility.draft[8][5] == "Name40")
+    assert(panel.importResult.text:find("Imported 40", 1, true) and panel.importResult.text:find("ignored", 1, true))
+    assert(utility.dirty and utility.draft[1][1] ~= "Old")
+    utility:Undo()
+    assert(utility.draft[1][1] == "Old")
+end)
+
+test("WoWAudit preview requires an encounter and import is undoable", function()
+    local panel = OpenImportExport({})
+    panel.selectSource("audit")
+    Paste(
+        panel,
         "EncounterID:1;Difficulty:Heroic;Name:First\ninvitelist:Ann-Home;\n"
             .. "EncounterID:2;Difficulty:Heroic;Name:Second\ninvitelist:Bob-Home;\n"
     )
-    panel.box.scripts.OnTextChanged()
+    assert(panel.picker:IsShown() and panel.preview.text:find("Found 2 encounters", 1, true))
     assert(#panel.picker.getItems() == 2)
-    panel.import.onClick()
-    assert(utility.draft[1][1] == "" and H.LastMessage():find("Select a WoWAudit encounter"))
+    assert(not panel.importEncounter.enabled)
     panel.picker:Pick("Second")
+    assert(panel.importEncounter.enabled and panel.preview.text:find("1 name(s) ready", 1, true))
     utility.draft[1][1] = "Old"
     utility:MarkDirty()
     H.popup = nil
-    panel.import.onClick()
-    assert(not H.popup and utility.draft[1][1] == "Bob-Home" and utility.dirty, "import should apply at once")
+    panel.importEncounter.onClick()
+    assert(not H.popup and utility.draft[1][1] == "Bob-Home" and utility.dirty)
+    assert(panel:IsShown() and panel.importResult.text:find("Imported 1 name", 1, true))
     utility:Undo()
     assert(utility.draft[1][1] == "Old", "Undo did not bring back what the import replaced")
+    Paste(panel, "EncounterID:3;Difficulty:Heroic;Name:Empty\n")
+    assert(not panel.importEncounter.enabled and panel.preview.text:find("invite list", 1, true))
 end)
 
-test("exchange export buttons provide selectable text without changing the draft", function()
-    local ui = Build({ "Ann" })
+test("source switching keeps separate pasted inputs and export uses a separate text area", function()
+    local panel = OpenImportExport({ "Ann" })
+    Paste(panel, "Ann, , Cid")
+    panel.selectSource("audit")
+    assert(panel.importText:GetText() == "" and not panel.importEncounter.enabled)
+    Paste(panel, "EncounterID:1;Difficulty:Mythic;Name:Boss\ninvitelist:Bob;\n")
+    panel.selectSource("list")
+    assert(panel.importText:GetText() == "Ann, , Cid")
+    panel.selectView("export")
+    assert(not panel.importView:IsShown() and panel.exportView:IsShown())
+    assert(panel.exportText:GetText() == "" and panel.importText:GetText() == "Ann, , Cid")
     utility.draft[2][1] = "Planned"
     local draft = utility.draft
     local snapshot = utility.CopyRoster(draft)
-    for _, frame in ipairs(H.frames) do
-        if frame.label == "Import/Export" then frame.onClick() end
-    end
-    local panel = ui.exchange
-    for _, frame in ipairs(H.frames) do
-        if frame.label == "Export NSRT list" then frame.onClick() end
-    end
-    assert(utility:ImportText(panel.box:GetText())[2][1] == "Planned")
-    for _, frame in ipairs(H.frames) do
-        if frame.label == "Export WoWAudit" then frame.onClick() end
-    end
-    assert(panel.box:GetText() == "raidlist:Ann-Home|0|8;")
+    panel.exportList.onClick()
+    assert(utility:ImportText(panel.exportText:GetText())[2][1] == "Planned")
+    assert(panel.exportStatus.text:find("Ctrl+C", 1, true))
+    assert(panel.importText:GetText() == "Ann, , Cid", "export overwrote the import input")
+    panel.exportAudit.onClick()
+    assert(panel.exportText:GetText() == "raidlist:Ann-Home|0|8;")
     assert(utility.draft == draft and not utility.dirty and draft[2][1] == snapshot[2][1])
+    H.inCombat = true
+    panel.exportAudit.onClick()
+    H.inCombat = false
+    assert(panel.exportText:GetText() == "" and panel.exportStatus.text:find("in combat", 1, true))
+    panel:Hide()
+    panel:Show()
+    assert(panel.exportText:GetText() == "" and panel.importView:IsShown(), "old export shown after reopening")
 end)
 
-test("the import popup replaces unsaved edits at once, and Undo brings them back", function()
-    Build({})
-    utility.draft[1][1] = "Old"
-    utility:MarkDirty()
-    H.popup = nil
-    Import("x y")
-    assert(not H.popup, "no prompt: Undo covers imports")
-    assert(utility.draft[1][1] == "x" and utility.draft[1][2] == "y")
-    utility:Undo()
-    assert(utility.draft[1][1] == "Old", "Undo did not bring back the replaced edits")
+test("invalid pasted text stays editable and cannot replace the draft", function()
+    local panel = OpenImportExport({})
+    utility.draft[1][1] = "Keep"
+    Paste(panel, "   ")
+    assert(not panel.importList.enabled and panel.preview.text:find("Nothing to import", 1, true))
+    assert(panel.importText:GetText() == "   " and utility.draft[1][1] == "Keep")
+    local blanks = {}
+    for i = 1, 40 do
+        blanks[i] = ""
+    end
+    blanks[41] = "TooLate"
+    Paste(panel, "invitelist: " .. table.concat(blanks, ", "))
+    assert(not panel.importList.enabled and panel.preview.text:find("No names fit", 1, true))
 end)
 
-test("the import popup prints an error for unusable text", function()
-    Build({})
-    Import("   ")
-    assert(H.LastMessage():find("Nothing to import", 1, true), H.LastMessage())
+test("damage meter is an add-only import with inline results", function()
+    local panel = OpenImportExport({})
+    utility.draft[1][1] = "Keep"
+    panel.selectSource("meter")
+    assert(
+        not panel.picker:IsShown() and panel.importMeter.frame:IsShown() and panel:GetHeight() == 310,
+        tostring(panel.picker:IsShown())
+            .. " | "
+            .. tostring(panel.importMeter.frame:IsShown())
+            .. " | "
+            .. panel:GetHeight()
+    )
+    H.inCombat = true
+    panel.importMeter.onClick()
+    H.inCombat = false
+    assert(panel.importResult.text:find("in combat", 1, true) and utility.draft[1][1] == "Keep")
+    local oldMeter = C_DamageMeter.GetCombatSessionFromType
+    H.SetMeter(
+        function(_, meterType)
+            return {
+                combatSources = meterType == 2
+                        and {
+                            { name = "Guest-Away", amountPerSecond = 300, sourceGUID = "Player-Guest-Away" },
+                        }
+                    or {},
+            }
+        end
+    )
+    panel.importMeter.onClick()
+    C_DamageMeter.GetCombatSessionFromType = oldMeter
+    assert(utility.draft[1][1] == "Keep" and utility.draft[1][2] == "Guest-Away")
+    assert(panel.importResult.text:find("Added 1 player", 1, true), panel.importResult.text)
+    panel.selectView("export")
+    assert(panel:GetHeight() == 470 and panel.exportView:IsShown())
 end)
 
 test("the Unassigned panel has a scrollbar attached to its scroll frame", function()

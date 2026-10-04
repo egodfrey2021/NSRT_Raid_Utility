@@ -17,6 +17,7 @@ src/Widgets.lua
 src/roster/Roster.lua
 src/roster/Preview.lua
 src/roster/Import.lua
+src/roster/ImportExportUI.lua
 src/roster/RosterUI.lua
 src/split/Split.lua
 src/split/SplitUI.lua

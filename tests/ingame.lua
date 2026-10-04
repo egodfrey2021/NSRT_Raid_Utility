@@ -176,7 +176,7 @@ function Tests:NSRTPublicAPI()
 end
 
 function Tests:NSRTInviteListGrammar()
-    -- "Import list" relies on NSRT's reader: comma lists are positional, empty fields keep a slot open
+    -- NSRT/WoWUtils list import relies on NSRT's reader: comma lists are positional, empty fields keep a slot open
     AreEqual({ "Ann", "", "Bob" }, NSRT.ParseInviteList("invitelist: Ann, , Bob"))
     AreEqual({ "Ann", "Bob" }, NSRT.ParseInviteList("invitelist: Ann Bob"))
     local roster = RaidUtility.NewRoster()
@@ -192,8 +192,8 @@ end
 -- chat and slash commands included, for the whole session.
 local editProbe
 
-function Tests:ExchangeEditBox()
-    -- the Import/Export panel's multi-line box keeps the line breaks of a pasted export
+function Tests:ImportExportEditBox()
+    -- the Import/Export panel's multi-line boxes keep the line breaks of pasted and generated text
     if not editProbe then
         editProbe = CreateFrame("EditBox", nil, UIParent)
         editProbe:Hide()

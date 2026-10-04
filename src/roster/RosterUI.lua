@@ -108,52 +108,6 @@ StaticPopupDialogs["NSRTRAIDUTILITY_DISCARD"] = {
     hideOnEscape = true,
 }
 
--- Replaces the draft with the imported roster; the dirty check happens first so nothing is lost silently
-local function AcceptImport(dialog)
-    local box = dialog.EditBox
-    local roster, overflow = RaidUtility:ImportText(box and box:GetText() or "")
-    if not roster then
-        Print(overflow)
-        return
-    end
-    RaidUtility.draft, RaidUtility.draftSplit = roster, false
-    RaidUtility:MarkDirty()
-    RaidUtility:RefreshUI()
-    local count = 0
-    RaidUtility.ForEachEntry(roster, function() count = count + 1 end)
-    Print(L["Imported %d name(s). Save to keep them."]:format(count))
-    if overflow > 0 then Print(L["%d name(s) beyond slot 40 were ignored."]:format(overflow)) end
-end
-
-local importText = "Paste an NSRT invite list (invitelist: a, b, c) or a plain list of names, "
-    .. "or add everyone in the damage meter's Overall session to the empty slots:"
-StaticPopupDialogs["NSRTRAIDUTILITY_IMPORT"] = {
-    text = L[importText],
-    button1 = ACCEPT,
-    button2 = CANCEL,
-    button3 = L["From damage meter"],
-    OnAlt = function() RaidUtility:ImportFromMeter() end,
-    hasEditBox = true,
-    maxLetters = 2000,
-    OnShow = function(dialog)
-        local box = dialog.EditBox
-        if box then
-            box:SetText("")
-            box:SetFocus()
-        end
-    end,
-    OnAccept = AcceptImport,
-    EditBoxOnEnterPressed = function(box)
-        local dialog = box:GetParent()
-        AcceptImport(dialog)
-        dialog:Hide()
-    end,
-    EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-}
-
 function RaidUtility:ConfirmDiscard(fn)
     if not self.dirty then
         fn()
@@ -599,130 +553,6 @@ local function ShowHistory(frame, C)
     panel.scroll:SetVerticalScroll(panel.scroll:GetVerticalScrollRange()) -- newest at the bottom
 end
 
-local function ShowExchange(frame, C)
-    local panel = RaidUtility.ui.exchange
-    if panel then
-        panel:Show()
-        return
-    end
-    panel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    RaidUtility.ui.exchange = panel
-    panel:SetSize(700, 360)
-    panel:SetPoint("CENTER", frame, "CENTER")
-    panel:SetFrameStrata("DIALOG")
-    panel:EnableMouse(true)
-    panel:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 2 })
-    panel:SetBackdropColor(0.06, 0.08, 0.11, 0.98)
-    panel:SetBackdropBorderColor(0, 0.7, 0.85)
-
-    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -14)
-    title:SetText(L["Import / export"])
-    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -37)
-    hint:SetWidth(660)
-    hint:SetJustifyH("LEFT")
-    local hintText = "WoWUtils exports keep group slots. WoWAudit encounter lists contain names only; "
-        .. "importing fills slots in order."
-    hint:SetText(L[hintText])
-    local status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    status:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -257)
-    status:SetWidth(665)
-    status:SetJustifyH("LEFT")
-    local pasteHint = L["Paste a WoWAudit encounter export above, or use an export button to select text for copying."]
-    status:SetText(pasteHint)
-
-    local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -77)
-    scroll:SetSize(646, 172)
-    local box = CreateFrame("EditBox", nil, scroll)
-    panel.box = box
-    box:SetWidth(626)
-    box:SetHeight(172)
-    box:SetMultiLine(true)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(0)
-    box:SetFontObject(GameFontHighlightSmall)
-    box:SetScript("OnEscapePressed", function() panel:Hide() end)
-    box:SetScript("OnTextChanged", function()
-        panel.selected = nil
-        box:SetHeight(math.max(172, box:GetNumLines() * 14 + 16))
-        status:SetText(pasteHint)
-    end)
-    scroll:SetScrollChild(box)
-
-    local encounters = {}
-    local picker = C.CreateDropdown(panel, L["Encounter"], function()
-        encounters = RaidUtility:WoWAuditEncounters(box:GetText())
-        local items = {}
-        for i, encounter in ipairs(encounters) do
-            items[#items + 1] = {
-                label = L["%1$s (%2$s)"]:format(encounter.name, encounter.difficulty),
-                value = i,
-                onclick = function() panel.selected = i end,
-            }
-        end
-        return items
-    end, function()
-        local encounter = encounters[panel.selected]
-        return encounter and L["%1$s (%2$s)"]:format(encounter.name, encounter.difficulty) or L["Select encounter"]
-    end, 260)
-    picker:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -281)
-    panel.picker = picker
-
-    local function Button(text, x, y, w, fn)
-        local button = C.CreateButton(panel, text, fn, w, 24)
-        button:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
-        return button
-    end
-    panel.import = Button(L["Import encounter"], 300, -281, 160, function()
-        local choices = RaidUtility:WoWAuditEncounters(box:GetText())
-        local index = panel.selected or (#choices == 1 and 1)
-        if not index then
-            RaidUtility.Print(L["Select a WoWAudit encounter to import."])
-            return
-        end
-        local roster, overflow = RaidUtility:ImportWoWAuditEncounter(choices[index])
-        if not roster then
-            RaidUtility.Print(overflow)
-            return
-        end
-        RaidUtility.draft, RaidUtility.draftSplit = roster, false
-        RaidUtility:MarkDirty()
-        RaidUtility:RefreshUI()
-        panel:Hide()
-        local count = 0
-        RaidUtility.ForEachEntry(roster, function() count = count + 1 end)
-        RaidUtility.Print(L["Imported %d name(s). Save to keep them."]:format(count))
-        if overflow > 0 then RaidUtility.Print(L["%d name(s) beyond slot 40 were ignored."]:format(overflow)) end
-        RaidUtility.Print(L["WoWAudit invite lists do not include raid group positions."])
-    end)
-    Button(L["Close"], 565, -281, 105, function() panel:Hide() end)
-    Button(L["Import NSRT list"], 16, -321, 145, function()
-        panel:Hide()
-        StaticPopup_Show("NSRTRAIDUTILITY_IMPORT")
-    end)
-    Button(L["Export NSRT list"], 171, -321, 155, function()
-        box:SetText(RaidUtility:ExportWoWUtils(RaidUtility.draft))
-        box:SetFocus()
-        box:HighlightText()
-        status:SetText(L["Copy this list, group positions included, anywhere that takes an NSRT invite list."])
-    end)
-    Button(L["Export WoWAudit"], 336, -321, 165, function()
-        local text, err = RaidUtility:ExportWoWAuditRaid()
-        if not text then
-            RaidUtility.Print(err)
-            return
-        end
-        box:SetText(text)
-        box:SetFocus()
-        box:HighlightText()
-        status:SetText(
-            L["Copy this live group snapshot into a WoWAudit raid plan; it does not include group positions."]
-        )
-    end)
-end
-
 -- C: NSRT's widget library (NSI.UI.Components), from Core's tab injection
 function RaidUtility:BuildRosterTab(frame, C)
     local ui = {
@@ -850,8 +680,8 @@ function RaidUtility:BuildRosterTab(frame, C)
     end)
     local splitTip = "Choose how to split the raid into two balanced sides, then generate the split."
     ui.splitButton = Action(L["Split raid..."], 120, L[splitTip], function() self:ToggleSplitSetup() end)
-    local exchangeTip = "Import NSRT or WoWUtils lists, import WoWAudit encounters, or export for copying."
-    Action(L["Import/Export"], 115, L[exchangeTip], function() ShowExchange(frame, C) end)
+    local importExportTip = "Import NSRT or WoWUtils lists, import WoWAudit encounters, or export for copying."
+    Action(L["Import/Export"], 115, L[importExportTip], function() self:ShowImportExport(frame, C) end)
     ui.clearButton = Action(L["Clear all"], 80, L["Empty all 8 groups."], function()
         self.draft, self.draftSplit = self.NewRoster(), false
         self:MarkDirty()

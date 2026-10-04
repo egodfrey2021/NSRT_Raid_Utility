@@ -14,7 +14,7 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   Click empty slot / double-click name to type (for planning offline players), Tab/Shift-Tab to move between slots.
   Right-click clears a slot. Dropping onto a typed (offline) name moves that name to an empty slot instead of
   deleting it. Slots show role icons; typed names not in the group are grey and tagged "(not in group)".
-  "Import list" pastes an NSRT `invitelist:` line (positional) or plain names into the draft.
+  Import accepts an NSRT `invitelist:` line (positional) or plain names into the draft.
 - Group edits go to a draft (`RaidUtility.draft`); **Save** commits, **Revert** discards, **Undo** steps back. Undo
   works through `MarkDirty`: every edit calls it after changing the draft, so it pushes the state kept from the
   previous call (`lastState`; groups, pins, split mark; 20 deep). `LoadDraft` and `ResetUndo` start fresh. Row 1:
@@ -104,7 +104,7 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
   tab) and by Generate split; edits and drags call `RefreshUI()` and reuse it; in combat the last one is kept.
   Read errors there are silent (blank numbers); Generate split and the import report them. Slots show the value
   right-aligned (HPS for healers, `MeterValue`); typed names of players who left match `byName`.
-- **From damage meter** (button3 on the Import popup, `ImportFromMeter`/`AddMeterPlayers` in Import.lua; always Overall): every
+- **Damage meter import** (Import tab, `ImportFromMeter`/`AddMeterPlayers` in Import.lua; always Overall): every
   player source in the session (Player- GUID or a group member; pets/creatures skipped) not already on the roster
   goes into empty slots by role, then value. Roles for non-members come from the source's `specIconID` (icon -> role
   map built once from `GetSpecializationInfoForClassID`), else healer if HPS > DPS. Adds only, so no confirmation.
@@ -141,6 +141,7 @@ The `.toc` stays at the addon root; runtime Lua lives in `src/` and its `roster/
 - `src/roster/Roster.lua`: data model + `db.version` migrations, draft, member list/name resolution, invite, arrange.
 - `src/roster/Preview.lua`: `/nru preview`, a fixture raid (you + up to 39 made-up players with the edge cases built in).
 - `src/roster/Import.lua`: invite-list text -> roster, and the damage meter import.
+- `src/roster/ImportExportUI.lua`: Import/Export panel, text previews, encounter selection, and copyable exports.
 - `src/roster/RosterUI.lua`: tab UI, drag and drop, inline editor, popups.
 - `src/split/Split.lua`: damage meter reading (`ReadMeter`), roles, side balancing, side -> roster layout, draft side totals.
 - `src/split/SplitUI.lua`: Generate split, its naming popup, and the balance strip (built by `BuildRosterTab`).
@@ -200,7 +201,7 @@ click), event-driven, no Lua errors/taint, Retail 12.x only, NSRT via `NSRT.lua`
 
 ## Related
 - WoWUtils has its own Group Arrangement on its Setup page that exports an NSRT `invitelist:` line
-  (positional, comma separated); "Import list" on the Rosters tab reads it via `NSRT.ParseInviteList`.
+  (positional, comma separated); the NSRT/WoWUtils list option reads it via `NSRT.ParseInviteList`.
 
 ## Development
 - Setup and the full workflow are in README.md "Development". Tools are pinned in `mise.toml`.
