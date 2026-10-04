@@ -20,7 +20,7 @@ You can keep separate rosters for different bosses or comps.
 
 ### Import and export
 
-- Open **Import/Export** and choose **Import** or **Export**. Under Import, select **NSRT / WoWUtils list**, **WoWAudit encounter**, or **Damage meter**. For lists, paste into the multiline box; the preview shows how many names will fit before you import. List imports replace the draft (Undo restores it); Damage meter adds players from the Overall session to empty slots without moving placed names.
+- Open **Import/Export** and choose **Import** or **Export**. Under Import, choose a source from **Import from**. Selecting one does not change the roster: paste a list to preview it, or choose **Damage meter** and click **Add to draft**. List imports replace the draft (Undo restores it); Damage meter adds players from the Overall session to empty slots without moving placed names. After importing, click **Review roster**, check the draft, then **Save** to keep it.
 - NSRT/WoWUtils positional `invitelist:` text keeps empty slots; plain names also work. A WoWAudit export may contain several encounters: choose one after pasting. WoWAudit invite lists have names but no group positions, so imported names fill slots in order.
 - Under Export, **Export draft as NSRT list** makes a positional list from the open draft. **Export live group for WoWAudit** makes a `raidlist:` snapshot of the real group with available specs and classes, not the draft or its group layout. Select the output and press Ctrl+C to copy it; the addon cannot copy to the clipboard for you.
 

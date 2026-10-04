@@ -259,8 +259,19 @@ end
 
 test("list import previews names and overflow, then replaces the draft in the same panel", function()
     local panel = OpenImportExport({})
+    assert(panel.sourcePicker.getSelected() == "NSRT / WoWUtils list")
     assert(panel.importView:IsShown() and not panel.exportView:IsShown())
-    assert(not panel.importList.enabled and not panel.picker:IsShown())
+    assert(panel.textView:IsVisible() and not panel.meterView:IsVisible())
+    assert(panel.importList.frame:IsVisible() and not panel.importEncounter.frame:IsVisible())
+    assert(not panel.importMeter.frame:IsVisible() and not panel.picker:IsVisible())
+    assert(type(panel.importText.parent.parent.backdrop) == "table", "paste area has no visible border")
+    local action = panel.importList.frame
+    local top = -panel.importView.points[1][5]
+        - panel.textView.points[1][5]
+        - action.parent.points[1][5]
+        - action.points[1][5]
+    assert(top + 24 <= panel:GetHeight(), "list import action extends below the panel")
+    assert(not panel.importList.enabled)
     utility.draft[1][1] = "Old"
     utility:MarkDirty()
     local names = {}
@@ -274,19 +285,24 @@ test("list import previews names and overflow, then replaces the draft in the sa
     assert(panel:IsShown() and utility.draft[1][1] == "Name1" and utility.draft[8][5] == "Name40")
     assert(panel.importResult.text:find("Imported 40", 1, true) and panel.importResult.text:find("ignored", 1, true))
     assert(utility.dirty and utility.draft[1][1] ~= "Old")
+    assert(panel.reviewText.frame:IsVisible(), "review step missing after import")
+    panel.reviewText.onClick()
+    assert(not panel:IsShown() and utility.dirty, "review should show the draft without saving it")
     utility:Undo()
     assert(utility.draft[1][1] == "Old")
 end)
 
 test("WoWAudit preview requires an encounter and import is undoable", function()
     local panel = OpenImportExport({})
-    panel.selectSource("audit")
+    panel.sourcePicker:Pick("WoWAudit encounter")
+    assert(panel.sourcePicker.getSelected() == "WoWAudit encounter")
     Paste(
         panel,
         "EncounterID:1;Difficulty:Heroic;Name:First\ninvitelist:Ann-Home;\n"
             .. "EncounterID:2;Difficulty:Heroic;Name:Second\ninvitelist:Bob-Home;\n"
     )
-    assert(panel.picker:IsShown() and panel.preview.text:find("Found 2 encounters", 1, true))
+    assert(panel.picker:IsVisible() and not panel.importList.frame:IsVisible())
+    assert(panel.importEncounter.frame:IsVisible() and panel.preview.text:find("Found 2 encounters", 1, true))
     assert(#panel.picker.getItems() == 2)
     assert(not panel.importEncounter.enabled)
     panel.picker:Pick("Second")
@@ -306,13 +322,14 @@ end)
 test("source switching keeps separate pasted inputs and export uses a separate text area", function()
     local panel = OpenImportExport({ "Ann" })
     Paste(panel, "Ann, , Cid")
-    panel.selectSource("audit")
+    panel.sourcePicker:Pick("WoWAudit encounter")
     assert(panel.importText:GetText() == "" and not panel.importEncounter.enabled)
     Paste(panel, "EncounterID:1;Difficulty:Mythic;Name:Boss\ninvitelist:Bob;\n")
-    panel.selectSource("list")
+    panel.sourcePicker:Pick("NSRT / WoWUtils list")
     assert(panel.importText:GetText() == "Ann, , Cid")
     panel.selectView("export")
     assert(not panel.importView:IsShown() and panel.exportView:IsShown())
+    assert(not panel.importList.frame:IsVisible() and not panel.picker:IsVisible())
     assert(panel.exportText:GetText() == "" and panel.importText:GetText() == "Ann, , Cid")
     utility.draft[2][1] = "Planned"
     local draft = utility.draft
@@ -351,19 +368,29 @@ end)
 test("damage meter is an add-only import with inline results", function()
     local panel = OpenImportExport({})
     utility.draft[1][1] = "Keep"
-    panel.selectSource("meter")
+    panel.sourcePicker:Pick("Damage meter")
+    assert(panel.sourcePicker.getSelected() == "Damage meter")
+    assert(utility.draft[1][1] == "Keep" and not panel.reviewMeter.frame:IsVisible())
     assert(
-        not panel.picker:IsShown() and panel.importMeter.frame:IsShown() and panel:GetHeight() == 310,
-        tostring(panel.picker:IsShown())
+        not panel.textView:IsVisible()
+            and panel.meterView:IsVisible()
+            and panel.importMeter.frame:IsVisible()
+            and panel:GetHeight() == 310,
+        tostring(panel.textView:IsVisible())
             .. " | "
-            .. tostring(panel.importMeter.frame:IsShown())
+            .. tostring(panel.importMeter.frame:IsVisible())
             .. " | "
             .. panel:GetHeight()
     )
+    assert(not panel.importText:IsVisible() and not panel.picker:IsVisible())
+    assert(panel.importMeter.frame.points[1][2] == panel.meterView, "meter action must stay inside its view")
+    local top = -panel.importView.points[1][5] - panel.meterView.points[1][5] - panel.importMeter.frame.points[1][5]
+    assert(top + 24 <= panel:GetHeight(), "meter action extends below the panel")
     H.inCombat = true
     panel.importMeter.onClick()
     H.inCombat = false
     assert(panel.importResult.text:find("in combat", 1, true) and utility.draft[1][1] == "Keep")
+    assert(not panel.reviewMeter.frame:IsVisible(), "failed import should not offer a review step")
     local oldMeter = C_DamageMeter.GetCombatSessionFromType
     H.SetMeter(
         function(_, meterType)
@@ -380,8 +407,16 @@ test("damage meter is an add-only import with inline results", function()
     C_DamageMeter.GetCombatSessionFromType = oldMeter
     assert(utility.draft[1][1] == "Keep" and utility.draft[1][2] == "Guest-Away")
     assert(panel.importResult.text:find("Added 1 player", 1, true), panel.importResult.text)
+    assert(panel.reviewMeter.frame:IsVisible(), "successful import should offer a review step")
     panel.selectView("export")
     assert(panel:GetHeight() == 470 and panel.exportView:IsShown())
+    panel.selectView("import")
+    panel.reviewMeter.onClick()
+    assert(not panel:IsShown() and utility.draft[1][2] == "Guest-Away")
+    panel:Show()
+    assert(not panel.reviewMeter.frame:IsVisible() and panel.importResult.text == "")
+    panel.sourcePicker:Pick("NSRT / WoWUtils list")
+    assert(panel.textView:IsVisible() and not panel.meterView:IsVisible() and panel:GetHeight() == 470)
 end)
 
 test("the Unassigned panel has a scrollbar attached to its scroll frame", function()

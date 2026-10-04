@@ -309,6 +309,8 @@ function H.Frame(parent)
     function f:SetText(text) self.text = text end
     function f:GetText() return self.text end
     function f:SetPoint(...) self.points[#self.points + 1] = { ... } end
+    function f:ClearAllPoints() self.points = {} end
+    function f:SetBackdrop(backdrop) self.backdrop = backdrop end
     function f:GetPoint() return "TOPLEFT" end
     function f:SetScrollChild(child) self.child = child end
     function f:GetVerticalScrollRange() return math.max(0, self.child.height - self.height) end
@@ -396,15 +398,15 @@ function H.NSRTWindow()
     _G.NorthernSkyRaidTools.NSUI = window
     _G.NorthernSkyRaidTools.UI = {
         Components = {
-            CreateButton = function(_, text, fn)
-                local button = H.Frame()
+            CreateButton = function(parent, text, fn)
+                local button = H.Frame(parent)
                 button.frame, button.label, button.onClick, button.enabled = button, text, fn, true
                 function button:Enable() self.enabled = true end
                 function button:Disable() self.enabled = false end
                 return button
             end,
-            CreateDropdown = function(_, label, getItems, getSelected)
-                local dropdown = H.Frame()
+            CreateDropdown = function(parent, label, getItems, getSelected)
+                local dropdown = H.Frame(parent)
                 dropdown.label, dropdown.getItems, dropdown.getSelected = label, getItems, getSelected
                 -- clicks the item whose label contains text, as a player picking it from the list would
                 function dropdown:Pick(text)
@@ -416,8 +418,8 @@ function H.NSRTWindow()
                 return dropdown
             end,
             -- NSRT calls getValue/setValue with its namespace first
-            CreateCheckButton = function(_, text, getValue, setValue)
-                local box = H.Frame()
+            CreateCheckButton = function(parent, text, getValue, setValue)
+                local box = H.Frame(parent)
                 box.frame, box.label, box.checked = box, text, getValue(_G.NorthernSkyRaidTools)
                 function box:SetValue(v) self.checked = not not v end
                 function box:GetValue() return self.checked end

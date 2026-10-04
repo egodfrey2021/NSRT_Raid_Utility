@@ -9,20 +9,11 @@ local function CountNames(roster)
     return count
 end
 
-local function TextArea(parent, y, height)
-    local scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, y)
-    scroll:SetSize(646, height)
-    local box = CreateFrame("EditBox", nil, scroll)
-    box:SetWidth(626)
-    box:SetHeight(height)
-    box:SetMultiLine(true)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(0)
-    box:SetFontObject(GameFontHighlightSmall)
-    box:SetText("")
-    scroll:SetScrollChild(box)
-    return box, scroll
+local function Section(parent)
+    local section = CreateFrame("Frame", nil, parent)
+    section:SetSize(700, 390)
+    section:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -36)
+    return section
 end
 
 local function Label(parent, text, y, font)
@@ -32,6 +23,29 @@ local function Label(parent, text, y, font)
     label:SetJustifyH("LEFT")
     label:SetText(text)
     return label
+end
+
+local function TextArea(parent, y, height)
+    local border = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    border:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, y)
+    border:SetSize(660, height)
+    border:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    border:SetBackdropColor(0, 0, 0, 0.85)
+    border:SetBackdropBorderColor(0.3, 0.5, 0.55, 0.9)
+
+    local scroll = CreateFrame("ScrollFrame", nil, border, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", border, "TOPLEFT", 8, -8)
+    scroll:SetSize(624, height - 16)
+    local box = CreateFrame("EditBox", nil, scroll)
+    box:SetWidth(598)
+    box:SetHeight(height - 16)
+    box:SetMultiLine(true)
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(0)
+    box:SetFontObject(GameFontHighlightSmall)
+    box:SetText("")
+    scroll:SetScrollChild(box)
+    return box, scroll
 end
 
 function RaidUtility:ShowImportExport(frame, C)
@@ -66,20 +80,25 @@ function RaidUtility:ShowImportExport(frame, C)
 
     local mode, view, pastes, encounters = "list", "import", { list = "", audit = "" }, {}
     local readyRoster, overflow, count
-    local sourceButtons = {}
-    local hint = Label(importView, "", -36)
-    local pasteLabel = Label(importView, L["Text to import:"], -74, "GameFontNormalSmall")
-    local input, inputScroll = TextArea(importView, -92, 135)
+    panel.selected = false
+
+    local textView = Section(importView)
+    local meterView = Section(importView)
+    panel.textView, panel.meterView = textView, meterView
+    local hint = Label(textView, "", -4)
+    local pasteStep = Label(textView, "", -37, "GameFontNormalSmall")
+    local input, inputScroll = TextArea(textView, -56, 125)
     panel.importText = input
     input:SetScript("OnEscapePressed", function() panel:Hide() end)
-    local preview = Label(importView, "", -267)
-    panel.preview = preview
-    local impact = Label(importView, "", -298)
-    local result = Label(importView, "", -326)
-    panel.importResult = result
+    local preview = Label(textView, "", -231)
+    Label(textView, L["Import replaces the open draft. Undo restores it; Save keeps the import."], -260)
+    local result = Label(textView, "", -283)
 
+    local pickerView = CreateFrame("Frame", nil, textView)
+    pickerView:SetSize(700, 30)
+    pickerView:SetPoint("TOPLEFT", textView, "TOPLEFT", 0, -190)
     local picker, RefreshPreview
-    picker = C.CreateDropdown(importView, L["Encounter"], function()
+    picker = C.CreateDropdown(pickerView, L["Encounter"], function()
         local items = {}
         for i, encounter in ipairs(encounters) do
             local label = L["%1$d. %2$s (%3$s)"]:format(i, encounter.name, encounter.difficulty)
@@ -99,9 +118,10 @@ function RaidUtility:ShowImportExport(frame, C)
         local encounter = encounters[panel.selected or (#encounters == 1 and 1)]
         return encounter and L["%1$s (%2$s)"]:format(encounter.name, encounter.difficulty) or L["Select encounter"]
     end, 300)
-    picker:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, -233)
+    picker:SetPoint("TOPLEFT", pickerView, "TOPLEFT", 16, 0)
     panel.picker = picker
 
+    local reviewTextAction
     local function ApplyImport()
         if not readyRoster then
             result:SetText(L["Paste a valid list or select an encounter before importing."])
@@ -110,38 +130,40 @@ function RaidUtility:ShowImportExport(frame, C)
         RaidUtility.draft, RaidUtility.draftSplit = readyRoster, false
         RaidUtility:MarkDirty()
         RaidUtility:RefreshUI()
-        local summary = L["Imported %d name(s). Save to keep them."]:format(count)
-        Print(summary)
+        Print(L["Imported %d name(s). Save to keep them."]:format(count))
+        local summary = L["Imported %d name(s) to the draft. Review the roster, then Save."]:format(count)
         if overflow > 0 then
             local ignored = L["%d name(s) beyond slot 40 were ignored."]:format(overflow)
             Print(ignored)
             summary = summary .. " " .. ignored
         end
         result:SetText(summary)
+        reviewTextAction:Show()
     end
-    local listButton = C.CreateButton(importView, L["Import NSRT/WoWUtils list"], ApplyImport, 220, 24)
-    listButton:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, -362)
+    local listAction = CreateFrame("Frame", nil, textView)
+    listAction:SetSize(700, 28)
+    listAction:SetPoint("TOPLEFT", textView, "TOPLEFT", 0, -318)
+    local listButton = C.CreateButton(listAction, L["Import into draft"], ApplyImport, 170, 24)
+    listButton:SetPoint("TOPLEFT", listAction, "TOPLEFT", 16, 0)
     panel.importList = listButton
 
-    local auditButton = C.CreateButton(importView, L["Import encounter"], ApplyImport, 160, 24)
-    auditButton:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, -362)
+    local auditAction = CreateFrame("Frame", nil, textView)
+    auditAction:SetSize(700, 28)
+    auditAction:SetPoint("TOPLEFT", textView, "TOPLEFT", 0, -318)
+    local auditButton = C.CreateButton(auditAction, L["Import into draft"], ApplyImport, 170, 24)
+    auditButton:SetPoint("TOPLEFT", auditAction, "TOPLEFT", 16, 0)
     panel.importEncounter = auditButton
-
-    local meterButton = C.CreateButton(
-        importView,
-        L["Add from damage meter"],
-        function() result:SetText(RaidUtility:ImportFromMeter()) end,
-        190,
-        24
-    )
-    meterButton:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, -362)
-    panel.importMeter = meterButton
+    reviewTextAction = CreateFrame("Frame", nil, textView)
+    reviewTextAction:SetSize(700, 28)
+    reviewTextAction:SetPoint("TOPLEFT", textView, "TOPLEFT", 0, -318)
+    local reviewText = C.CreateButton(reviewTextAction, L["Review roster"], function() panel:Hide() end, 150, 24)
+    reviewText:SetPoint("TOPLEFT", reviewTextAction, "TOPLEFT", 200, 0)
+    panel.reviewText = reviewText
+    reviewTextAction:Hide()
 
     RefreshPreview = function()
         readyRoster, overflow, count = nil, 0, 0
-        if mode == "meter" then
-            preview:SetText(L["This adds players the Overall session has seen but leaves placed names alone."])
-        elseif mode == "list" then
+        if mode == "list" then
             local text = input:GetText()
             local roster, err = RaidUtility:ImportText(text)
             if roster then
@@ -154,7 +176,7 @@ function RaidUtility:ShowImportExport(frame, C)
             else
                 preview:SetText(text == "" and L["Paste an invite list or names above."] or err)
             end
-        else
+        elseif mode == "audit" then
             encounters = RaidUtility:WoWAuditEncounters(input:GetText())
             local index = panel.selected or (#encounters == 1 and 1)
             if #encounters == 0 then
@@ -177,10 +199,14 @@ function RaidUtility:ShowImportExport(frame, C)
             end
             preview:SetText(summary)
         end
-        if readyRoster then
-            (mode == "list" and listButton or auditButton):Enable()
+        if mode == "list" and readyRoster then
+            listButton:Enable()
         else
             listButton:Disable()
+        end
+        if mode == "audit" and readyRoster then
+            auditButton:Enable()
+        else
             auditButton:Disable()
         end
         picker:Refresh()
@@ -189,75 +215,88 @@ function RaidUtility:ShowImportExport(frame, C)
     input:SetScript("OnTextChanged", function()
         if mode ~= "meter" then pastes[mode] = input:GetText() end
         panel.selected = false
-        input:SetHeight(math.max(135, input:GetNumLines() * 14 + 16))
+        input:SetHeight(math.max(109, input:GetNumLines() * 14 + 16))
         inputScroll:SetVerticalScroll(0)
         result:SetText("")
+        reviewTextAction:Hide()
         RefreshPreview()
     end)
 
+    Label(meterView, L["2. Add players from the damage meter's Overall session."], -4, "GameFontNormalSmall")
+    Label(meterView, L["Only empty slots are filled. Nothing changes until you click Add."], -47)
+    local meterResult = Label(meterView, "", -90)
+    local reviewMeter
+    local meterButton = C.CreateButton(meterView, L["Add to draft"], function()
+        local message, added = RaidUtility:ImportFromMeter()
+        meterResult:SetText(message)
+        if added and added > 0 then reviewMeter.frame:Show() end
+    end, 150, 24)
+    meterButton:SetPoint("TOPLEFT", meterView, "TOPLEFT", 16, -153)
+    panel.importMeter = meterButton
+    reviewMeter = C.CreateButton(meterView, L["Review roster"], function() panel:Hide() end, 150, 24)
+    reviewMeter:SetPoint("TOPLEFT", meterView, "TOPLEFT", 200, -153)
+    panel.reviewMeter = reviewMeter
+    reviewMeter.frame:Hide()
+
+    local sourcePicker
+    local sourceNames = {
+        list = L["NSRT / WoWUtils list"],
+        audit = L["WoWAudit encounter"],
+        meter = L["Damage meter"],
+    }
     local function SelectSource(selected)
         if mode ~= "meter" then pastes[mode] = input:GetText() end
         mode = selected
         panel.selected = false
-        input:SetText(pastes[mode] or "")
-        local isText = mode ~= "meter"
-        if not isText then input:ClearFocus() end
-        inputScroll:SetShown(isText)
-        picker:SetShown(mode == "audit")
-        pasteLabel:SetShown(isText)
-        for key, button in pairs(sourceButtons) do
-            button.frame:SetAlpha(key == mode and 1 or 0.6)
-        end
-        listButton.frame:SetShown(mode == "list")
-        auditButton.frame:SetShown(mode == "audit")
-        meterButton.frame:SetShown(mode == "meter")
+        if mode ~= "meter" then input:SetText(pastes[mode]) end
+        textView:SetShown(mode ~= "meter")
+        meterView:SetShown(mode == "meter")
+        pickerView:SetShown(mode == "audit")
+        listAction:SetShown(mode == "list")
+        auditAction:SetShown(mode == "audit")
         if mode == "list" then
-            hint:SetText(
-                L["Paste an NSRT or WoWUtils invitelist: line, or a plain list of names. Empty slots are kept."]
-            )
-            impact:SetText(L["Import replaces the open draft. Undo restores the old draft; Save keeps the import."])
+            hint:SetText(L["NSRT or WoWUtils invitelist: text and plain names are accepted. Empty slots are kept."])
+            pasteStep:SetText(L["2. Paste an invite list or names to preview:"])
         elseif mode == "audit" then
-            hint:SetText(
-                L["Paste a WoWAudit encounter export. Invite lists have no group positions; names fill slots in order."]
-            )
-            impact:SetText(L["Import replaces the open draft. Undo restores the old draft; Save keeps the import."])
+            hint:SetText(L["WoWAudit encounter invite lists have no group positions; names fill slots in order."])
+            pasteStep:SetText(L["2. Paste a WoWAudit encounter export to preview:"])
         else
-            hint:SetText(L["Add players from the damage meter's Overall session, sorted by role and value."])
-            impact:SetText(L["Placed names stay where they are. Undo removes added names; Save keeps them."])
+            input:ClearFocus()
         end
+        panel.preview = mode == "meter" and meterResult or preview
+        panel.importResult = mode == "meter" and meterResult or result
+        if view == "import" then panel:SetHeight(mode == "meter" and 310 or 470) end
         result:SetText("")
-        local compact = mode == "meter"
-        local function Move(label, y)
-            label:ClearAllPoints()
-            label:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, y)
-        end
-        Move(preview, compact and -72 or -267)
-        Move(impact, compact and -102 or -298)
-        Move(result, compact and -138 or -326)
-        meterButton.frame:ClearAllPoints()
-        meterButton.frame:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, compact and -190 or -362)
-        if view == "import" then panel:SetHeight(compact and 310 or 470) end
+        meterResult:SetText("")
+        reviewTextAction:Hide()
+        reviewMeter.frame:Hide()
         RefreshPreview()
+        sourcePicker:Refresh()
     end
     panel.selectSource = SelectSource
 
-    local function Source(text, key, x, width)
-        local button = C.CreateButton(importView, text, function() SelectSource(key) end, width, 24)
-        button:SetPoint("TOPLEFT", importView, "TOPLEFT", x, -4)
-        sourceButtons[key] = button
-    end
-    Source(L["NSRT / WoWUtils list"], "list", 16, 190)
-    Source(L["WoWAudit encounter"], "audit", 216, 190)
-    Source(L["Damage meter"], "meter", 416, 150)
+    sourcePicker = C.CreateDropdown(importView, L["1. Import from:"], function()
+        local items = {}
+        for _, key in ipairs({ "list", "audit", "meter" }) do
+            items[#items + 1] = {
+                label = sourceNames[key],
+                value = key,
+                onclick = function() SelectSource(key) end,
+            }
+        end
+        return items
+    end, function() return sourceNames[mode] end, 350)
+    sourcePicker:SetPoint("TOPLEFT", importView, "TOPLEFT", 16, -4)
+    panel.sourcePicker = sourcePicker
 
-    Label(exportView, L["Choose what to export:"], -6, "GameFontNormalSmall")
-    local output, outputScroll = TextArea(exportView, -121, 228)
+    Label(exportView, L["1. Generate text from:"], -6, "GameFontNormalSmall")
+    local output, outputScroll = TextArea(exportView, -123, 205)
     panel.exportText = output
     output:SetScript("OnEscapePressed", function() panel:Hide() end)
-    output:SetScript("OnTextChanged", function() output:SetHeight(math.max(228, output:GetNumLines() * 14 + 16)) end)
-    Label(exportView, L["Text to copy (select it and press Ctrl+C):"], -98, "GameFontNormalSmall")
-    local exportInfo = Label(exportView, "", -66)
-    local exportStatus = Label(exportView, "", -354)
+    output:SetScript("OnTextChanged", function() output:SetHeight(math.max(189, output:GetNumLines() * 14 + 16)) end)
+    Label(exportView, L["2. Copy the selected text with Ctrl+C:"], -102, "GameFontNormalSmall")
+    local exportInfo = Label(exportView, "", -68)
+    local exportStatus = Label(exportView, "", -346)
     panel.exportStatus = exportStatus
     local function ShowOutput(text, description)
         output:SetText(text)
@@ -320,6 +359,9 @@ function RaidUtility:ShowImportExport(frame, C)
         exportStatus:SetText("")
         exportInfo:SetText(L["Export text appears below; it will not change the roster."])
         result:SetText("")
+        meterResult:SetText("")
+        reviewTextAction:Hide()
+        reviewMeter.frame:Hide()
         SelectView("import")
     end)
     panel:SetScript("OnHide", function()

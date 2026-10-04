@@ -157,6 +157,7 @@ function RaidUtility:ImportFromMeter()
         return err
     end
     local messages = {}
+    local added = 0
     local function Report(message)
         Print(message)
         messages[#messages + 1] = message
@@ -164,7 +165,8 @@ function RaidUtility:ImportFromMeter()
     if #meter.players == 0 then
         Report(L["The damage meter's Overall session has no players yet."])
     else
-        local added, skipped = self:AddMeterPlayers(self.draft, members, meter)
+        local skipped
+        added, skipped = self:AddMeterPlayers(self.draft, members, meter)
         if added > 0 then
             self:MarkDirty()
             Report(L["Added %d player(s) from the damage meter. Save to keep them."]:format(added))
@@ -176,5 +178,5 @@ function RaidUtility:ImportFromMeter()
         end
     end
     self:RefreshUI(true)
-    return table.concat(messages, "\n")
+    return table.concat(messages, "\n"), added
 end
