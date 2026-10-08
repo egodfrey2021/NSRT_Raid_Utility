@@ -601,27 +601,38 @@ function RaidUtility:Arrange(rosterName, roster)
     -- Build NSRT's 40-slot layout. Present players are packed to the top of each group and the rest is
     -- padded with "already done" placeholders: NSRT's ArrangeGroups references an undefined
     -- `indextosubgroup` when a group has a gap of 2+ slots before the target slot, and packing avoids it.
+    -- Within a group, players go in raid index order, not roster slot order. NSRT checks each player's slot inside
+    -- the group, and it reads that slot from raid index order, which moving players never changes (the game has no
+    -- way to set a slot within a group). In any other order NSRT keeps swapping them out and back (tanks in slot 1
+    -- most of all) until its 25s timeout, often leaving the wrong groups.
     local units, seen, missing, ambiguous, placements = {}, {}, {}, {}, {}
     local members = self.GetGroupMembers()
-    local slots = {}
+    local byGroup = {}
     self.ForEachEntry(roster, function(g, _, entry)
         local member, reason = self:ResolveGroupMember(entry, members)
         local idx = member and member.index
         if member and idx and not seen[idx] then
             seen[idx] = true
-            slots[g] = (slots[g] or 0) + 1
-            local pos, unit = (g - 1) * 5 + slots[g], "raid" .. idx
-            -- NSRT finds players with UnitInRaid(name): short name on your realm, Name-Realm otherwise
-            local target = { sort = pos, name = Ambiguate(member.fullName, "none"), unitid = unit, role = member.role }
-            units[pos] = target
+            byGroup[g] = byGroup[g] or {}
+            table.insert(byGroup[g], { member = member, entry = entry })
             placements[#placements + 1] = { member = member, group = g }
-            self.Debug(("slot %d: %s -> %s"):format(pos, entry, target.name))
         elseif reason == "ambiguous" then
             ambiguous[#ambiguous + 1] = entry
         elseif not idx then
             missing[#missing + 1] = entry
         end
     end)
+    for g, list in pairs(byGroup) do
+        table.sort(list, function(a, b) return a.member.index < b.member.index end)
+        for slot, p in ipairs(list) do
+            local member, pos = p.member, (g - 1) * 5 + slot
+            -- NSRT finds players with UnitInRaid(name): short name on your realm, Name-Realm otherwise
+            local target = { sort = pos, name = Ambiguate(member.fullName, "none"), unitid = "raid" .. member.index }
+            target.role = member.role
+            units[pos] = target
+            self.Debug(("slot %d: %s -> %s"):format(pos, p.entry, target.name))
+        end
+    end
     for pos = 1, 40 do
         units[pos] = units[pos] or { sort = pos, processed = true }
     end

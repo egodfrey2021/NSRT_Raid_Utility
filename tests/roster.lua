@@ -69,6 +69,19 @@ test("Arrange packs present players and names same-realm players without a realm
     assert(H.LastMessage():find("Sorting"))
 end)
 
+test("Arrange orders each group by raid index, so NSRT's slot checks can be met", function()
+    TwinsRaid() -- raid1 Twin, raid2 Twin-Away, raid3 Healer
+    NSI.Groups = nil
+    utility.lastArrange = nil
+    local roster = utility.NewRoster()
+    roster[1][1], roster[1][2] = "Healer", "Twin-Away" -- roster order is the reverse of raid index order
+    utility:Arrange(nil, roster)
+    local units = NSI.Groups.units
+    assert(units[1].name == "Twin-Away" and units[2].name == "Healer", "group not in raid index order")
+    assert(units[1].unitid == "raid2" and units[2].unitid == "raid3")
+    assert(units[3].processed, "the rest of the group was not padded")
+end)
+
 test("Arrange reports when NSRT finishes, checking after each roster update", function()
     TwinsRaid()
     H.timers = {}

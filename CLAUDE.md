@@ -194,6 +194,12 @@ click), event-driven, no Lua errors/taint, Retail 12.x only, NSRT via `NSRT.lua`
   `indextosubgroup`) in the branch taken when a group has a gap of 2+ slots before the target slot.
   Packing avoids that path most of the time. Still present in NSRT 12.1.24 (SetupManager.lua:389); not yet
   reported upstream.
+- Within each group, players are sent in **raid index order**, not roster slot order. NSRT's ArrangeGroups checks
+  each player's slot inside the group (`postoindex[v.pos]`), reading that slot from raid index order, and moving
+  players never changes their raid index (no API sets a slot within a group). Any other order is unreachable: NSRT
+  swaps those players out and back (tanks in slot 1 most visibly) until its 25s timeout, often ending in wrong
+  groups. Running NSRT 12.1.24's real ArrangeGroups against a simulated raid with stable indices: roster slot order
+  finished 0 of 900 sorts (10/20/30 players); raid index order finished all 900 in 4-25 moves on average.
 - Second layer: `NSRT.lua` defines the missing global `indextosubgroup` (raid index -> live subgroup via
   GetRaidRosterInfo) if it's nil, so the broken branch works instead of erroring. This also fixes NSRT's own sorts.
   Simulating NSRT's real ArrangeGroups over random layouts: packing alone still hit the bug in ~0.3% of layouts under
