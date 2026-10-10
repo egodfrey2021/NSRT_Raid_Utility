@@ -422,9 +422,8 @@ end
 -- ------------------------------------------------------------
 -- What players bring: Bloodlust, battle rez, raid buffs
 -- ------------------------------------------------------------
--- Raid buffs a side should have when the raid has two or more of the class. The first six mirror the buff list in
--- NSRT's ReadyCheck.lua (a local table there, so it can't be read from here): keep them in step. The last two are
--- debuffs on the enemies they hit, which NSRT's ready check (it looks at players' auras) doesn't list.
+-- Raid buffs a side should have when the raid has two or more of the class: the six class buffs players carry, then
+-- two debuffs on the enemies they hit.
 RaidUtility.RAID_BUFFS = {
     -- name: in chat notes; short: on the balance strip
     { class = "WARRIOR", name = L["Battle Shout"], short = L["Shout"] },

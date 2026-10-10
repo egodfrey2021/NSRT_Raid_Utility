@@ -233,10 +233,34 @@ local function SpecSet(...)
 end
 
 _G.NorthernSkyRaidTools = {
-    -- copies of NSRT's spec tables (SetupManager.lua): melee damage and melee healers, Bloodlust, battle rez
-    meleetable = SpecSet(263, 255, 259, 260, 261, 71, 72, 251, 252, 103, 70, 269, 577, 65, 270),
-    lusttable = SpecSet(263, 255, 1473, 1467, 253, 254, 262, 64, 62, 63, 1468, 264),
-    resstable = SpecSet(66, 104, 250, 251, 252, 103, 70, 102, 265, 266, 267, 65, 105),
+    -- Stand-ins for the spec tables NSRT provides at runtime, written from game data (spec IDs): specs that fight in
+    -- melee (damage and melee healers), specs with Bloodlust or an equivalent, and specs with a battle rez.
+    -- stylua: ignore start
+    meleetable = SpecSet(
+        65,   -- Holy Paladin
+        70,   -- Retribution Paladin
+        71, 72, -- Arms, Fury Warrior
+        103,  -- Feral Druid
+        251, 252, -- Frost, Unholy Death Knight
+        255,  -- Survival Hunter
+        259, 260, 261, -- Assassination, Outlaw, Subtlety Rogue
+        263,  -- Enhancement Shaman
+        269, 270, -- Windwalker, Mistweaver Monk
+        577   -- Havoc Demon Hunter
+    ),
+    lusttable = SpecSet(
+        62, 63, 64, -- Mage
+        253, 254, 255, -- Hunter
+        262, 263, 264, -- Shaman
+        1467, 1468, 1473 -- Evoker
+    ),
+    resstable = SpecSet(
+        65, 66, 70, -- Paladin
+        102, 103, 104, 105, -- Druid
+        250, 251, 252, -- Death Knight
+        265, 266, 267 -- Warlock
+    ),
+    -- stylua: ignore end
     Restricted = function() return false end,
     InviteList = function(_, list)
         for _, name in ipairs(list) do
