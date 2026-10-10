@@ -67,8 +67,8 @@ Northern Sky Raid Tools (NSRT) options window. Author: Evan. Rules for every cha
     balancing for every provider) but `FixShortfalls` after it: swap a provider with a non-provider of the same
     bucket, closest value first, never a pinned player, never creating a new shortfall. Targets (`Shortfalls`):
     1 Bloodlust per side; battle rez 2 per side with 4+ in the raid, else 1 (NSRT's own side sorting aims for up
-    to 2); each `RAID_BUFFS` entry on both sides when the raid has 2+ of the class (the six NSRT buffs from its
-    local ReadyCheck.lua list, plus Chaos Brand and Mystic Touch, debuffs on enemies). Lust/rez come from NSRT's
+    to 2); each `RAID_BUFFS` entry on both sides when the raid has 2+ of the class (the six class raid buffs, plus
+    Chaos Brand and Mystic Touch, debuffs on enemies). Lust/rez come from NSRT's
     `lusttable`/`resstable` by spec, else the class (`LUST_CLASS`/`REZ_CLASS`). Unfixed shortfalls become notes.
   - `debuffMax` (`db.splitBuffs` == "max", a v2 mode; v1 stored a boolean): `MaximizeDebuffs` after the shortfall
     pass, only with exactly one Demon Hunter or Monk (Chaos Brand/Mystic Touch don't stack, so with 2+ "even" is
@@ -192,13 +192,12 @@ click), event-driven, no Lua errors/taint, Retail 12.x only, NSRT via `NSRT.lua`
 - Players present in the raid are packed to the top of each group and the rest padded with
   `{processed=true}` placeholders. Reason: NSRT's ArrangeGroups has a bug (references undefined
   `indextosubgroup`) in the branch taken when a group has a gap of 2+ slots before the target slot.
-  Packing avoids that path most of the time. Still present in NSRT 12.1.24 (SetupManager.lua:389); not yet
-  reported upstream.
+  Packing avoids that path most of the time. Not yet reported upstream.
 - Within each group, players are sent in **raid index order**, not roster slot order. NSRT's ArrangeGroups checks
-  each player's slot inside the group (`postoindex[v.pos]`), reading that slot from raid index order, and moving
+  each player's slot inside the group, judged by raid index order, and moving
   players never changes their raid index (no API sets a slot within a group). Any other order is unreachable: NSRT
   swaps those players out and back (tanks in slot 1 most visibly) until its 25s timeout, often ending in wrong
-  groups. Running NSRT 12.1.24's real ArrangeGroups against a simulated raid with stable indices: roster slot order
+  groups. Running NSRT's ArrangeGroups against a simulated raid with stable indices: roster slot order
   finished 0 of 900 sorts (10/20/30 players); raid index order finished all 900 in 4-25 moves on average.
 - Second layer: `NSRT.lua` defines the missing global `indextosubgroup` (raid index -> live subgroup via
   GetRaidRosterInfo) if it's nil, so the broken branch works instead of erroring. This also fixes NSRT's own sorts.
@@ -225,8 +224,8 @@ click), event-driven, no Lua errors/taint, Retail 12.x only, NSRT via `NSRT.lua`
 - In game: the addon folder must be `Interface/AddOns/NSRT_Raid_Utility` (README "Load it in the game"). `/reload`
   picks up .lua changes; .toc changes need a full client restart. Try changes with `/nru preview` first. Not yet
   verified in game beyond basic UI.
-- NSRT's source, for checking the internals we hook, is in its installed addon folders `NorthernSkyRaidTools/` and
-  `NorthernSkyRaidTools_UI/`.
+- When NSRT updates, re-check the NSRT functions and data this addon calls (all listed in `src/NSRT.lua` and
+  `types/globals.lua`); the in-game WoWUnit tests flag the ones that disappear.
 
 ## Releasing
 - Repo is packaged with BigWigsMods/packager via `.github/workflows/release.yml` on tag push; the release job only

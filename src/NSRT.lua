@@ -10,8 +10,8 @@ local SORT_TIMEOUT = 25 -- NSRT gives up on a group sort after this many seconds
 
 function NSRT.Get() return _G.NorthernSkyRaidTools end
 
--- NSRT 12.1.24's ArrangeGroups reads a global `indextosubgroup` it never defines (SetupManager.lua:389), so that
--- branch errors and the sort stops. Supply what it expects: raid index -> current subgroup, read live. Packing in
+-- NSRT's ArrangeGroups reads a global `indextosubgroup` that nothing defines, so one of its branches errors and the
+-- sort stops. Supply what it expects: raid index -> current subgroup, read live. Packing in
 -- Arrange keeps us off that branch most of the time; this makes it safe for the rest and for NSRT's own sorts.
 -- Once NSRT fixes the line it stops reading this.
 if indextosubgroup == nil then
@@ -149,7 +149,7 @@ function NSRT.GetSpecRole(unit)
     end
 end
 
--- Whether a spec is in one of NSRT's spec tables (SetupManager.lua), so this addon and NSRT's group sorting agree.
+-- Whether a spec is in one of NSRT's spec tables (read at runtime), so this addon and NSRT's group sorting agree.
 -- nil if NSRT no longer has the table.
 local function InSpecTable(name, specID)
     local NSI = NSRT.Get()
